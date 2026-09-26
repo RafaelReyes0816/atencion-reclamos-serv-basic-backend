@@ -43,6 +43,7 @@ Registrar nuevo usuario.
   "nombre": "string",
   "documento": "string",
   "telefono": "string",
+  "contraseña": "string",
   "email": "string|null",
   "direccion": "string"
 }
