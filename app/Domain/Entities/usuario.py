@@ -8,6 +8,7 @@ class Usuario:
     nombre: str
     documento: str
     telefono: str
+    contraseña: str = ""
     email: Optional[str] = None
     direccion: str = ""
     reclamos: Optional[List[object]] = field(default=None)

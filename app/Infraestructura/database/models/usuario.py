@@ -10,6 +10,7 @@ class UsuarioORM(Base):
     nombre = Column(String, nullable=False)
     documento = Column(String, unique=True, nullable=False, index=True)
     telefono = Column(String, nullable=False)
+    contraseña_hash = Column(String, nullable=False)
     email = Column(String, nullable=True)
     direccion = Column(String, nullable=False)
 

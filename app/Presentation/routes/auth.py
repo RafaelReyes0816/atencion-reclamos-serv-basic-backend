@@ -12,14 +12,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     repo = UsuarioRepository(db)
-    usuario = repo.get_by_documento(form_data.username)
-    if not usuario or not verify_password(form_data.password, "hash_placeholder"):
+    orm = repo.get_orm_by_documento(form_data.username)
+    if not orm or not verify_password(form_data.password, orm.contraseña_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Documento o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token = create_access_token(data={"sub": usuario.id_usuario})
+    access_token = create_access_token(data={"sub": orm.id_usuario})
     return {"access_token": access_token, "token_type": "bearer"}
 
 

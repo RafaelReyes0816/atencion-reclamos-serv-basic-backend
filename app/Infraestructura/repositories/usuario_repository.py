@@ -3,6 +3,7 @@ from sqlalchemy.orm import joinedload
 from app.Domain.Repositories.usuario_repository import UsuarioRepositoryABC
 from app.Domain.Entities.usuario import Usuario
 from app.Infraestructura.database.models.usuario import UsuarioORM
+from app.Infraestructura.security import get_password_hash
 
 
 class UsuarioRepository(UsuarioRepositoryABC):
@@ -15,6 +16,7 @@ class UsuarioRepository(UsuarioRepositoryABC):
             nombre=orm.nombre,
             documento=orm.documento,
             telefono=orm.telefono,
+            contraseña="",
             email=orm.email,
             direccion=orm.direccion,
         )
@@ -31,7 +33,12 @@ class UsuarioRepository(UsuarioRepositoryABC):
         orm = self.db.query(UsuarioORM).filter(UsuarioORM.documento == documento).first()
         return self._to_entity(orm) if orm else None
 
+    def get_orm_by_documento(self, documento: str) -> Optional[UsuarioORM]:
+        return self.db.query(UsuarioORM).filter(UsuarioORM.documento == documento).first()
+
     def create(self, data: dict) -> Usuario:
+        if "contraseña" in data:
+            data["contraseña_hash"] = get_password_hash(data.pop("contraseña"))
         orm = UsuarioORM(**data)
         self.db.add(orm)
         self.db.commit()

@@ -7,6 +7,7 @@ class UsuarioCreate(BaseModel):
     nombre: str
     documento: str
     telefono: str
+    contraseña: str
     email: Optional[str] = None
     direccion: str
 
