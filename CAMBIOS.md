@@ -404,3 +404,37 @@ trabajo, 1 derivacion comercial.
 ### `app/Presentation/routes/reclamos.py` (modificado)
 
 - `asignar_plazo`: cambio de permiso de `GESTION` a `INTERNO` (el tecnico ahora puede asignar plazos).
+
+---
+
+## 16. Restructuracion: Presentation/api/
+
+### `app/Presentation/api/__init__.py` (nuevo)
+
+Se extrajo toda la configuracion de FastAPI de `main.py` a esta carpeta, siguiendo la
+estructura de Clean Architecture:
+
+```
+Presentation/
+  api/            ← FastAPI app, CORS, routers, exception handler, lifespan
+  routes/
+  schemas/
+  dependencies/
+```
+
+El archivo contiene:
+- Creacion de `app = FastAPI(...)` con titulo, descripcion, version y lifespan
+- Configuracion de CORS middleware
+- Include de los 10 routers
+- Exception handler global para `DomainError`
+- Endpoints de salud (`/` y `/health`)
+
+### `app/main.py` (modificado)
+
+Se redujo a un thin wrapper:
+```python
+from app.Presentation.api import app  # noqa: F401
+```
+
+El entry point para uvicorn sigue siendo `app.main:app` (sin cambios en el comando
+de arranque). `conftest.py` tambien sigue importando de `app.main`.

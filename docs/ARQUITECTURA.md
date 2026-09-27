@@ -146,7 +146,7 @@ graph LR
 ### Errores de dominio
 
 Los use cases lanzan `DomainError` (o sus derivados) desde `app/Domain/Exceptions.py`, nunca
-`HTTPException`. `app/main.py` registra un handler que traduce cada excepción a su
+`HTTPException`. `app/Presentation/api/__init__.py` registra un handler que traduce cada excepción a su
 `status_code`:
 
 | Excepción | HTTP | Cuándo |
