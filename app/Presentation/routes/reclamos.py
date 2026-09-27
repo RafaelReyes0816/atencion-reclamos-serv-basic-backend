@@ -96,7 +96,7 @@ def asignar_plazo(
     id: int,
     plazo: ReclamoAsignarPlazo,
     servicio=Depends(get_service),
-    current_user=Depends(require_roles(*GESTION)),
+    current_user=Depends(require_roles(*INTERNO)),
 ):
     return servicio["asignar_plazo"].execute(id, plazo.id_normativa, plazo.fecha_tope)
 

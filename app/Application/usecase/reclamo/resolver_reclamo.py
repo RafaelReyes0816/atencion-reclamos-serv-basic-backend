@@ -15,6 +15,8 @@ class ResolverReclamoUseCase:
             raise NoEncontradoError("Reclamo no encontrado")
         if reclamo.estado == EstadoReclamo.cerrado.value:
             raise ConflictoError("El reclamo ya está cerrado")
+        if reclamo.estado == EstadoReclamo.registrado.value:
+            raise ConflictoError("El reclamo debe ser clasificado antes de resolverse")
         reclamo.estado = EstadoReclamo.resuelto.value
         reclamo.resultado = resultado
         return self.repository.update(reclamo)

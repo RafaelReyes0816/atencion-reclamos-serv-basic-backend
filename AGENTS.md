@@ -87,6 +87,8 @@ Key directories:
 - **DATABASE_URL dialect:** Use `postgresql+psycopg://` (not `postgresql://`). See `app/Infraestructura/database/__init__.py`.
 - **SQLite support:** `database/__init__.py` auto-detects SQLite and disables `pool_pre_ping`. Use `sqlite:///./test.db` for local dev.
 - **API proxy:** Frontend uses relative URLs. Vite proxies to backend via `vite.config.js` server.proxy. Add new routes there when adding endpoints. Don't hardcode `VITE_API_URL` in axios.
+- **Vite 8 host:** `vite.config.js` sets `host: '127.0.0.1'` — without this, Vite 8 only binds `[::1]` and `http://127.0.0.1:5173` doesn't respond.
+- **Preview proxy:** `pnpm preview` (port 4173) also needs the proxy config; without it the app loads but all API calls fail silently.
 - **CORS:** `main.py` allows `http://localhost:5173`. Update if frontend port changes.
 - **Login format:** OAuth2 `application/x-www-form-urlencoded` (not JSON) — matches FastAPI's `OAuth2PasswordRequestForm`. `username` = documento.
 - **Password field:** User entity has `contraseña` (plain) in request, `contraseña_hash` (bcrypt) in DB. Never expose hash in API responses. `UsuarioRepository.update()` nunca escribe el hash: para contraseñas usar `actualizar_contrasena()`.

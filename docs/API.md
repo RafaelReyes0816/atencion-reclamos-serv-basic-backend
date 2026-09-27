@@ -27,6 +27,31 @@ no pertenece a su enum. Ver [Catálogos](#catálogos).
 
 ---
 
+## Máquina de estados del reclamo
+
+El `estado` de un reclamo transiciona automáticamente según la acción ejecutada:
+
+```
+registrado ──PUT /clasificar──> clasificado
+clasificado ──PUT /asignar-plazo──> clasificado (con fecha_tope)
+clasificado ──POST /seguimiento/ordenes──> en_atencion_tecnica
+clasificado ──POST /seguimiento/derivaciones──> en_atencion_comercial
+en_atencion_tecnica ──PUT /seguimiento/ordenes/{id} (estado_orden: resuelta)──> resuelto
+en_atencion_comercial ──PUT /seguimiento/derivaciones/{id} (estado_derivacion: resuelta)──> resuelto
+resuelto ──PUT /cerrar──> cerrado
+cualquiera (no cerrado) ──scheduler vencidos──> escalado
+```
+
+**Transiciones importantes:**
+- **Crear orden de trabajo** (`POST /seguimiento/ordenes`) cambia el reclamo a `en_atencion_tecnica`.
+- **Crear derivación comercial** (`POST /seguimiento/derivaciones`) cambia el reclamo a `en_atencion_comercial`.
+- **Marcar orden como resuelta** (`PUT /seguimiento/ordenes/{id}` con `estado_orden: "resuelta"`) cambia el reclamo a `resuelto`.
+- **Marcar derivación como resuelta** (`PUT /seguimiento/derivaciones/{id}` con `estado_derivacion: "resuelta"`) cambia el reclamo a `resuelto`.
+- **Resolver** (`PUT /reclamos/{id}/resolver`) requiere que el reclamo NO esté en `registrado` ni `cerrado`.
+- **Cerrar** (`PUT /reclamos/{id}/cerrar`) requiere que el reclamo esté en `resuelto`.
+
+---
+
 ## Roles y permisos
 
 Cada usuario tiene un `rol`. El registro público (`/auth/register`) **siempre** asigna
@@ -35,8 +60,8 @@ Cada usuario tiene un `rol`. El registro público (`/auth/register`) **siempre**
 | Rol | Puede hacer |
 |-----|-------------|
 | `ciudadano` | Registrar y consultar **sus propios** reclamos, ver y editar su propio perfil, cambiar su contraseña, consultar el estado de su reclamo por documento |
-| `tecnico` | Lo de `ciudadano` + lectura de normativa/cuadrillas/áreas/órdenes, registrar avances, clasificar y resolver reclamos |
-| `supervisor` | Lo de `tecnico` + listar usuarios, escribir normativa/cuadrillas/áreas, asignar plazos, cerrar reclamos, eliminar órdenes, reportes, dashboard, verificación de plazos |
+| `tecnico` | Lo de `ciudadano` + lectura de normativa/cuadrillas/áreas/órdenes, registrar avances, clasificar, asignar plazos y resolver reclamos |
+| `supervisor` | Lo de `tecnico` + listar usuarios, escribir normativa/cuadrillas/áreas, cerrar reclamos, eliminar órdenes, reportes, dashboard, verificación de plazos |
 | `admin` | Todo, incluyendo crear/eliminar usuarios y eliminar reclamos |
 
 **Matriz por endpoint:**
@@ -54,7 +79,7 @@ Cada usuario tiene un `rol`. El registro público (`/auth/register`) **siempre**
 | `GET /reclamos/{id}` | solo los suyos | ✅ | ✅ | ✅ |
 | `PUT /reclamos/{id}` | | ✅ | ✅ | ✅ |
 | `PUT /reclamos/{id}/clasificar` | | ✅ | ✅ | ✅ |
-| `PUT /reclamos/{id}/asignar-plazo` | | | ✅ | ✅ |
+| `PUT /reclamos/{id}/asignar-plazo` | | ✅ | ✅ | ✅ |
 | `PUT /reclamos/{id}/resolver` | | ✅ | ✅ | ✅ |
 | `PUT /reclamos/{id}/cerrar` | | | ✅ | ✅ |
 | `DELETE /reclamos/{id}` | | | | ✅ |
@@ -286,7 +311,7 @@ Clasificar reclamo. **Requiere rol interno.** `409` si está `resuelto` o `cerra
 **Response:** `200` `ReclamoResponse` (con `estado: "clasificado"`)
 
 ### PUT `/reclamos/{id}/asignar-plazo`
-Asignar plazo regulatorio. **Requiere `supervisor` o `admin`.** `404` si la normativa no existe, `409` si está cerrado.
+Asignar plazo regulatorio. **Requiere rol interno.** `404` si la normativa no existe, `409` si está cerrado.
 
 **Request Body:**
 ```json
@@ -296,7 +321,7 @@ Asignar plazo regulatorio. **Requiere `supervisor` o `admin`.** `404` si la norm
 **Response:** `200` `ReclamoResponse`
 
 ### PUT `/reclamos/{id}/resolver`
-Resolver reclamo. **Requiere rol interno.** `409` si ya está `cerrado`.
+Resolver reclamo. **Requiere rol interno.** `409` si está `cerrado` o `registrado`.
 
 **Request Body:**
 ```json
@@ -490,6 +515,7 @@ Orden de un reclamo. **Requiere rol interno.** `404` si no tiene orden.
 
 ### POST `/seguimiento/ordenes`
 Crear orden. **Requiere rol interno.** `404` si el reclamo no existe, `409` si ya tiene orden.
+**Cambia el estado del reclamo a `en_atencion_tecnica`.**
 
 **Request Body:**
 ```json
@@ -504,6 +530,7 @@ Crear orden. **Requiere rol interno.** `404` si el reclamo no existe, `409` si y
 ### PUT `/seguimiento/ordenes/{id}`
 Actualizar orden. **Requiere rol interno.** Solo los campos enviados.
 `estado_orden`: `asignada` | `en_curso` | `resuelta`
+**Si se cambia a `resuelta`, el reclamo asociado pasa a `resuelto`.**
 
 **Request Body:**
 ```json
@@ -551,6 +578,7 @@ Derivación por su ID. **Requiere rol interno.**
 
 ### POST `/seguimiento/derivaciones`
 Crear derivación. **Requiere rol interno.** `404` si el reclamo no existe, `409` si ya tiene derivación.
+**Cambia el estado del reclamo a `en_atencion_comercial`.**
 `area_comercial`: `facturacion` | `cobranza`
 
 **Request Body:**
@@ -562,6 +590,7 @@ Crear derivación. **Requiere rol interno.** `404` si el reclamo no existe, `409
 
 ### PUT `/seguimiento/derivaciones/{id}`
 Actualizar derivación. **Requiere rol interno.** `estado_derivacion`: `derivada` | `resuelta`
+**Si se cambia a `resuelta`, el reclamo asociado pasa a `resuelto`.**
 
 **Request Body:**
 ```json

@@ -35,18 +35,22 @@ class CrearOrdenUseCase:
         self.reclamo_repo = reclamo_repo
 
     def execute(self, data: dict) -> OrdenTrabajo:
-        if not self.reclamo_repo.get_by_id(data["id_reclamo"]):
+        reclamo = self.reclamo_repo.get_by_id(data["id_reclamo"])
+        if not reclamo:
             raise NoEncontradoError("Reclamo no encontrado")
         if self.orden_repo.get_by_reclamo(data["id_reclamo"]):
             raise ConflictoError("El reclamo ya tiene una orden de trabajo")
         data = dict(data)
         data["estado_orden"] = "asignada"
-        return self.orden_repo.create(data)
+        orden = self.orden_repo.create(data)
+        self.reclamo_repo.update_estado(reclamo.id_reclamo, "en_atencion_tecnica")
+        return orden
 
 
 class ActualizarOrdenUseCase:
-    def __init__(self, repository: OrdenTrabajoRepositoryABC):
+    def __init__(self, repository: OrdenTrabajoRepositoryABC, reclamo_repo=None):
         self.repository = repository
+        self.reclamo_repo = reclamo_repo
 
     def execute(self, id: int, cambios: dict) -> OrdenTrabajo:
         orden = self.repository.get_by_id(id)
@@ -55,7 +59,14 @@ class ActualizarOrdenUseCase:
         for campo, valor in cambios.items():
             if valor is not None and hasattr(orden, campo):
                 setattr(orden, campo, valor)
-        return self.repository.update(orden)
+        resultado = self.repository.update(orden)
+        if (
+            self.reclamo_repo
+            and cambios.get("estado_orden") == "resuelta"
+            and orden.id_reclamo
+        ):
+            self.reclamo_repo.update_estado(orden.id_reclamo, "resuelto")
+        return resultado
 
 
 class EliminarOrdenUseCase:

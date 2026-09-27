@@ -373,8 +373,34 @@ El borrado se hizo en el orden inverso de la cadena de dependencias verificada e
 esquema: `avances` → `ordenes_trabajo` → `derivaciones_comerciales` → `reclamos` →
 `usuarios`.
 
-**Estado final de la base:** 4 usuarios (los del seed), 5 reclamos, 0 órdenes de
-trabajo.
+**Estado final de la base:** 4 usuarios (los del seed), 13 reclamos, 2 ordenes de
+trabajo, 1 derivacion comercial.
 
 > Los 4 usuarios del seed (`10000001` a `10000004`) se conservan intencionalmente: son
 > las únicas cuentas con las que se puede iniciar sesión en una base limpia.
+
+---
+
+## 15. Maquina de estados del reclamo (transiciones automaticas)
+
+### `app/Application/usecase/orden_trabajo/gestionar_orden.py` (modificado)
+
+- `CrearOrdenUseCase`: ahora cambia el estado del reclamo a `en_atencion_tecnica` al crear la orden.
+- `ActualizarOrdenUseCase`: ahora cambia el estado del reclamo a `resuelto` al marcar la orden como `resuelta`.
+
+### `app/Application/usecase/derivacion/gestionar_derivacion.py` (modificado)
+
+- `CrearDerivacionUseCase`: ahora cambia el estado del reclamo a `en_atencion_comercial` al crear la derivacion.
+- `ActualizarDerivacionUseCase`: ahora cambia el estado del reclamo a `resuelto` al marcar la derivacion como `resuelta`. Recibe `reclamo_repo` como dependencia.
+
+### `app/Application/usecase/reclamo/resolver_reclamo.py` (modificado)
+
+- `ResolverReclamoUseCase`: ahora bloquea resolver desde estado `registrado` (debe clasificarse primero).
+
+### `app/Presentation/dependencies/__init__.py` (modificado)
+
+- `ActualizarOrdenUseCase` y `ActualizarDerivacionUseCase` ahora reciben `reclamo_repo` para poder cambiar el estado del reclamo.
+
+### `app/Presentation/routes/reclamos.py` (modificado)
+
+- `asignar_plazo`: cambio de permiso de `GESTION` a `INTERNO` (el tecnico ahora puede asignar plazos).

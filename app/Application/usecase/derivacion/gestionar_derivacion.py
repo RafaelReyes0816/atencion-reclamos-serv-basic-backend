@@ -27,18 +27,22 @@ class CrearDerivacionUseCase:
         self.reclamo_repo = reclamo_repo
 
     def execute(self, data: dict) -> DerivacionComercial:
-        if not self.reclamo_repo.get_by_id(data["id_reclamo"]):
+        reclamo = self.reclamo_repo.get_by_id(data["id_reclamo"])
+        if not reclamo:
             raise NoEncontradoError("Reclamo no encontrado")
         if self.derivacion_repo.get_by_reclamo(data["id_reclamo"]):
             raise ConflictoError("El reclamo ya tiene una derivación comercial")
         data = dict(data)
         data["estado_derivacion"] = "derivada"
-        return self.derivacion_repo.create(data)
+        derivacion = self.derivacion_repo.create(data)
+        self.reclamo_repo.update_estado(reclamo.id_reclamo, "en_atencion_comercial")
+        return derivacion
 
 
 class ActualizarDerivacionUseCase:
-    def __init__(self, repository: DerivacionComercialRepositoryABC):
+    def __init__(self, repository: DerivacionComercialRepositoryABC, reclamo_repo: ReclamoRepositoryABC = None):
         self.repository = repository
+        self.reclamo_repo = reclamo_repo
 
     def execute(self, id: int, cambios: dict) -> DerivacionComercial:
         derivacion = self.repository.get_by_id(id)
@@ -47,4 +51,11 @@ class ActualizarDerivacionUseCase:
         for campo, valor in cambios.items():
             if valor is not None and hasattr(derivacion, campo):
                 setattr(derivacion, campo, valor)
-        return self.repository.update(derivacion)
+        resultado = self.repository.update(derivacion)
+        if (
+            self.reclamo_repo
+            and cambios.get("estado_derivacion") == "resuelta"
+            and derivacion.id_reclamo
+        ):
+            self.reclamo_repo.update_estado(derivacion.id_reclamo, "resuelto")
+        return resultado

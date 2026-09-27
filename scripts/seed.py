@@ -61,11 +61,27 @@ AREAS = [
 ]
 
 RECLAMOS = [
-    ("10000004", "web", "agua", "fuga", "alta", "Fuga de agua en la tuberia de la cocina", -2, "cerrado"),
-    ("10000004", "telefonico", "luz", "corte", "alta", "Sin energia electrica en todo el barrio", 0, "en_atencion_tecnica"),
-    ("10000004", "presencial", "agua", "facturacion", "normal", "Factura con cobro doble", 5, "clasificado"),
-    ("10000004", "web", "luz", "falla_tecnica", "critica", "Poste de luz caido en la carrera 5", -1, "escalado"),
-    ("10000004", "web", "agua", "corte", "alta", "Corte de agua en el sector norte", 1, "registrado"),
+    # (doc, canal, servicio, categoria, urgencia, desc, offset_dias, estado, tiene_orden, tiene_derivacion)
+    # --- Cerrados ---
+    ("10000004", "web", "agua", "fuga", "alta", "Fuga de agua en la tuberia de la cocina", -2, "cerrado", False, False),
+    ("10000004", "telefonico", "luz", "corte", "alta", "Corte de luz por falla en el transformador del barrio", -5, "cerrado", False, False),
+    ("10000004", "presencial", "agua", "facturacion", "normal", "Cobro excesivo en factura de agua del mes de agosto", -3, "cerrado", False, False),
+    # --- En atencion tecnica ---
+    ("10000004", "telefonico", "luz", "corte", "alta", "Sin energia electrica en todo el barrio", 0, "en_atencion_tecnica", True, False),
+    ("10000004", "web", "agua", "fuga", "critica", "Fuga principal en la avenida principal, inundacion", -1, "en_atencion_tecnica", True, False),
+    # --- En atencion comercial ---
+    ("10000004", "presencial", "luz", "facturacion", "normal", "Factura de luz con cargo por reconexion no solicitada", 3, "en_atencion_comercial", False, True),
+    # --- Clasificados (esperando atencion) ---
+    ("10000004", "web", "agua", "facturacion", "normal", "Factura con cobro doble", 5, "clasificado", False, False),
+    ("10000004", "web", "luz", "falla_tecnica", "alta", "Luz parpadea constantemente en toda la cuadra", 2, "clasificado", False, False),
+    ("10000004", "telefonico", "agua", "corte", "alta", "Sin agua desde hace 2 dias en el sector oriente", 1, "clasificado", False, False),
+    # --- Escalados ---
+    ("10000004", "web", "luz", "falla_tecnica", "critica", "Poste de luz caido en la carrera 5, peligro publico", -1, "escalado", False, False),
+    # --- Registrados (sin clasificar) ---
+    ("10000004", "web", "agua", "corte", "alta", "Corte de agua en el sector norte", 1, "registrado", False, False),
+    ("10000004", "presencial", "luz", "falla_tecnica", "normal", "Problema con el medidor de luz, lectura incorrecta", 2, "registrado", False, False),
+    # --- Resuelto (esperando cierre) ---
+    ("10000004", "web", "agua", "fuga", "normal", "Fuga menor en el grifo del jardín", 4, "resuelto", False, False),
 ]
 
 
@@ -212,21 +228,44 @@ def seed_catalogos(db):
 
 def seed_reclamos(db, ids):
     repo = ReclamoRepository(db)
-    for idx, (doc, canal, servicio, categoria, urgencia, desc, offset, estado) in enumerate(RECLAMOS, 1):
-        if db.query(ReclamoORM).filter_by(descripcion=desc).first():
-            continue
-        creado = repo.create({
-            "id_usuario": ids[doc],
-            "fecha_recepcion": date.today() - timedelta(days=3),
-            "canal": canal,
-            "servicio": servicio,
-            "categoria": categoria,
-            "urgencia": urgencia,
-            "descripcion": desc,
-            "estado": estado,
-            "fecha_tope": date.today() + timedelta(days=offset),
-        })
-        print(f"[nuevo] reclamo {creado.id_reclamo} ({estado}): {desc[:45]}")
+    for idx, (doc, canal, servicio, categoria, urgencia, desc, offset, estado, tiene_orden, tiene_derivacion) in enumerate(RECLAMOS, 1):
+        existente = db.query(ReclamoORM).filter_by(descripcion=desc).first()
+        if existente:
+            reclamo_id = existente.id_reclamo
+        else:
+            creado = repo.create({
+                "id_usuario": ids[doc],
+                "fecha_recepcion": date.today() - timedelta(days=3),
+                "canal": canal,
+                "servicio": servicio,
+                "categoria": categoria,
+                "urgencia": urgencia,
+                "descripcion": desc,
+                "estado": estado,
+                "fecha_tope": date.today() + timedelta(days=offset),
+            })
+            reclamo_id = creado.id_reclamo
+            print(f"[nuevo] reclamo {reclamo_id} ({estado}): {desc[:45]}")
+
+        if tiene_orden and not db.query(OrdenTrabajoORM).filter_by(id_reclamo=reclamo_id).first():
+            db.add(OrdenTrabajoORM(
+                id_reclamo=reclamo_id,
+                cuadrilla="Cuadrilla Luz Centro",
+                fecha_asignacion=date.today() - timedelta(days=1),
+                estado_orden="en_curso",
+            ))
+            db.commit()
+            print(f"[nuevo] orden de trabajo para reclamo {reclamo_id}")
+
+        if tiene_derivacion and not db.query(DerivacionComercialORM).filter_by(id_reclamo=reclamo_id).first():
+            db.add(DerivacionComercialORM(
+                id_reclamo=reclamo_id,
+                fecha_derivacion=date.today() - timedelta(days=1),
+                area_comercial="Facturación",
+                estado_derivacion="derivada",
+            ))
+            db.commit()
+            print(f"[nuevo] derivación comercial para reclamo {reclamo_id}")
 
 
 def main() -> int:
