@@ -12,13 +12,13 @@ graph TB
 
     subgraph "Backend — FastAPI + Clean Architecture"
         subgraph "Presentation Layer"
-            Routes[Routers<br/>auth, usuarios, reclamos,<br/>normativa, cuadrillas,<br/>areas-comerciales,<br/>seguimiento, plazos, reportes]
+            Routes[Routers<br/>auth, usuarios, reclamos,<br/>normativa, cuadrillas,<br/>areas-comerciales,<br/>seguimiento, plazos, reportes,<br/>dashboard]
             Schemas[Pydantic Schemas<br/>Request/Response Validation]
-            Dependencies[Dependencies<br/>get_current_user<br/>get_service]
+            Dependencies[Dependencies<br/>get_current_user, require_roles<br/>get_service, INTERNO/GESTION/ADMIN]
         end
 
         subgraph "Application Layer"
-            UseCases[Use Cases<br/>gestionar_<entidad>.py<br/>1 por operación CRUD]
+            UseCases[Use Cases<br/>gestionar_<entidad>.py /<br/>archivos individuales]
         end
 
         subgraph "Domain Layer"
@@ -394,6 +394,7 @@ graph LR
 | POST | `/auth/register` | Registrar usuario (siempre `ciudadano`) | Público |
 | GET | `/reclamos/estado/{id_o_doc}` | Tracking del reclamo | Público |
 | PUT | `/usuarios/{id}/contrasena` | Cambiar contraseña | Propio usuario |
+| GET | `/usuarios/documento/{documento}` | Buscar usuario por documento | Propio o interno |
 | GET | `/usuarios/` | Listar usuarios | `supervisor` |
 | POST | `/usuarios/` | Crear usuario con rol | `admin` |
 | DELETE | `/usuarios/{id}` | Eliminar usuario | `admin` |
@@ -409,6 +410,7 @@ graph LR
 | PUT | `/reclamos/{id}/cerrar` | Cerrar reclamo | `supervisor` |
 | DELETE | `/reclamos/{id}` | Eliminar reclamo | `admin` |
 | GET | `/normativa/` `GET /cuadrillas/` `GET /areas-comerciales/` | Leer catálogos | `tecnico` |
+| GET | `/normativa/vigente` | Normativa vigente por combinación | `tecnico` |
 | POST/PUT/DELETE | de normativa, cuadrillas y áreas | Escribir catálogos | `supervisor` |
 | GET/POST/PUT | `/seguimiento/*` | Órdenes, avances, derivaciones | `tecnico` |
 | DELETE | `/seguimiento/ordenes/{id}` | Eliminar orden | `supervisor` |
@@ -431,3 +433,31 @@ datos. Se ejecuta una vez tras cada cambio de esquema.
 `clave123`), normativa, cuadrillas, áreas comerciales y reclamos de ejemplo. Es idempotente.
 `--reset` borra únicamente lo que el propio script creó —se identifica por documento, nombre
 y tuplas de catálogo, nunca "todo lo que hay en la tabla"— y vuelve a insertarlo.
+
+---
+
+## Suite de Pruebas
+
+Ubicación: `tests/`. Se ejecuta con `pytest` (desde `backend/`).
+
+```bash
+cd backend && pytest                  # todos
+cd backend && pytest tests/test_reclamos.py  # un archivo
+cd backend && pytest -k "test_crear"  # por nombre
+```
+
+| Archivo | Cubre |
+|---------|-------|
+| `conftest.py` | Fixtures: cliente HTTP, usuario admin/tecnico/ciudadano, datos de prueba |
+| `test_auth.py` | Login, register, JWT |
+| `test_usuarios.py` | CRUD de usuarios, permisos por rol |
+| `test_permisos.py` | Matriz completa de 403 por rol × endpoint |
+| `test_reclamos.py` | Crear, listar, clasificar, resolver, cerrar, eliminar |
+| `test_normativa.py` | CRUD de normativa, consulta vigente |
+| `test_cuadrillas_areas.py` | CRUD de cuadrillas y áreas comerciales |
+| `test_seguimiento.py` | Órdenes, avances, derivaciones |
+| `test_reportes_plazos_dashboard.py` | Reportes, plazos, dashboard |
+| `test_configuracion.py` | Configuración del sistema |
+
+Naming: `test_<method>_<scenario>_<result>`. La suite usa httpx async para llamadas
+a la API y `conftest.py` configura la BD de prueba (SQLite en memoria).

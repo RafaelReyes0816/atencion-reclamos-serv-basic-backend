@@ -6,7 +6,7 @@
 - **Frontend:** React 19, Vite 8, React Router v7, Axios, pnpm (`frontend/`)
 - **Deploy:** Solo local (sin despliegue a producción)
 - **Package manager:** pnpm only (no npm/yarn). No TypeScript — files are `.js`/`.jsx`.
-- **Repos:** Backend y frontend en repos separados dentro de la misma carpeta
+- **Repos:** Two independent git repos (`backend/` and `frontend/`), not a monorepo
 
 ## Commands
 
@@ -20,7 +20,7 @@ uvicorn app.main:app --reload --port 8000
 # Frontend
 cd frontend && pnpm install
 cd frontend && pnpm dev       # Vite dev server, port 5173
-cd frontend && pnpm lint      # ESLint flat config
+cd frontend && pnpm lint      # oxlint (NOT ESLint)
 cd frontend && pnpm build     # Production build to dist/
 ```
 
@@ -87,11 +87,12 @@ Key directories:
 - **DATABASE_URL dialect:** Use `postgresql+psycopg://` (not `postgresql://`). See `app/Infraestructura/database/__init__.py`.
 - **SQLite support:** `database/__init__.py` auto-detects SQLite and disables `pool_pre_ping`. Use `sqlite:///./test.db` for local dev.
 - **API proxy:** Frontend uses relative URLs. Vite proxies to backend via `vite.config.js` server.proxy. Add new routes there when adding endpoints. Don't hardcode `VITE_API_URL` in axios.
+- **CORS:** `main.py` allows `http://localhost:5173`. Update if frontend port changes.
 - **Login format:** OAuth2 `application/x-www-form-urlencoded` (not JSON) — matches FastAPI's `OAuth2PasswordRequestForm`. `username` = documento.
 - **Password field:** User entity has `contraseña` (plain) in request, `contraseña_hash` (bcrypt) in DB. Never expose hash in API responses. `UsuarioRepository.update()` nunca escribe el hash: para contraseñas usar `actualizar_contrasena()`.
 - **DI pattern:** Routes usan `use_cases = Depends(get_service)` — un dict de use cases. **No instanciar repositorios directamente en las rutas**; la lógica de negocio va en `app/Application/usecase/`, no en el route.
 - **Schema changes:** `Base.metadata.create_all()` **no altera** tablas existentes. Ejecutar `python -m scripts.migrar_esquema` (ALTER idempotente, preserva datos). No usar `drop_all` salvo que quieras perder todo.
-- **Scheduler en tests:** `main.py` importa el módulo con `from app.Infraestructura.tasks import scheduler` y llama `scheduler_module.init_scheduler()`, no `from ... import init_scheduler`. Si se_importa la función directamente, el monkeypatch de `conftest.py` deja de funcionar y el `BackgroundScheduler` real arranca contra la BD real.
+- **Scheduler en tests:** `main.py` importa el módulo con `from app.Infraestructura.tasks import scheduler` y llama `scheduler_module.init_scheduler()`, no `from ... import init_scheduler`. Si se importa la función directamente, el monkeypatch de `conftest.py` deja de funcionar y el `BackgroundScheduler` real arranca contra la BD real.
 - **403 vs 401:** `401` = token ausente/inválido. `403` = token válido pero rol insuficiente. El frontend debe distinguir ambos.
 
 ## Conventions
@@ -104,14 +105,12 @@ Key directories:
 ## Testing
 
 ```bash
-# Backend
-pytest  # pytest + httpx (async) or FastAPI TestClient
-
-# Frontend
-cd frontend && pnpm vitest  # Vitest + React Testing Library (not configured by default)
+# Backend (from backend/)
+cd backend && pytest  # pytest + httpx (async) or FastAPI TestClient
 ```
 
 - Naming: `test_<method>_<scenario>_<result>`
+- Frontend testing not configured (vitest not in devDependencies)
 
 ## Deployment Notes
 
@@ -122,4 +121,5 @@ cd frontend && pnpm vitest  # Vitest + React Testing Library (not configured by 
 ## Reference
 
 - Template guide: `docs/Plantilla-FastAPI.md`
+- Architecture docs: `docs/ARQUITECTURA.md`
 - Plan de desarrollo: `PLAN.md`
