@@ -1,49 +1,53 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from app.Infraestructura.database import get_db
-from app.Infraestructura.repositories.area_comercial_repository import AreaComercialRepository
+from fastapi import APIRouter, Depends
 from app.Presentation.schemas.area_comercial import AreaComercialCreate, AreaComercialUpdate, AreaComercialResponse
-from app.Presentation.dependencies import get_current_user
+from app.Presentation.schemas.dashboard import MensajeResponse
+from app.Presentation.dependencies import require_roles, get_service, INTERNO, GESTION
 from typing import List
 
 router = APIRouter(prefix="/areas-comerciales", tags=["areas-comerciales"])
 
 
 @router.get("/", response_model=List[AreaComercialResponse])
-def listar_areas(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = AreaComercialRepository(db)
-    return repo.get_all()
+def listar_areas(
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*INTERNO)),
+):
+    return use_cases["listar_areas"].execute()
+
+
+@router.post("/", response_model=AreaComercialResponse, status_code=201)
+def crear_area(
+    area_data: AreaComercialCreate,
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*GESTION)),
+):
+    return use_cases["crear_area"].execute(area_data.model_dump())
 
 
 @router.get("/{id}", response_model=AreaComercialResponse)
-def obtener_area(id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = AreaComercialRepository(db)
-    area = repo.get_by_id(id)
-    if not area:
-        raise HTTPException(status_code=404, detail="Área comercial no encontrada")
-    return area
-
-
-@router.post("/", response_model=AreaComercialResponse)
-def crear_area(area_data: AreaComercialCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = AreaComercialRepository(db)
-    return repo.create(area_data.model_dump())
+def obtener_area(
+    id: int,
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*INTERNO)),
+):
+    return use_cases["obtener_area"].execute(id)
 
 
 @router.put("/{id}", response_model=AreaComercialResponse)
-def actualizar_area(id: int, area_data: AreaComercialUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = AreaComercialRepository(db)
-    area = repo.get_by_id(id)
-    if not area:
-        raise HTTPException(status_code=404, detail="Área comercial no encontrada")
-    update_data = area_data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(area, key, value)
-    return repo.update(area)
+def actualizar_area(
+    id: int,
+    area_data: AreaComercialUpdate,
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*GESTION)),
+):
+    return use_cases["actualizar_area"].execute(id, area_data.model_dump(exclude_unset=True))
 
 
-@router.delete("/{id}")
-def eliminar_area(id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = AreaComercialRepository(db)
-    repo.delete(id)
+@router.delete("/{id}", response_model=MensajeResponse)
+def eliminar_area(
+    id: int,
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*GESTION)),
+):
+    use_cases["eliminar_area"].execute(id)
     return {"message": "Área comercial eliminada", "status": "success"}

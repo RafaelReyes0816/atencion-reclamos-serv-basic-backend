@@ -38,17 +38,19 @@ class CuadrillaRepository(CuadrillaRepositoryABC):
 
     def update(self, entity: Cuadrilla) -> Cuadrilla:
         orm = self.db.query(CuadrillaORM).filter(CuadrillaORM.id_cuadrilla == entity.id_cuadrilla).first()
-        if orm:
-            orm.nombre = entity.nombre
-            orm.especialidad = entity.especialidad
-            orm.capacidad = entity.capacidad
-            orm.contacto = entity.contacto
-            self.db.commit()
-            self.db.refresh(orm)
+        if orm is None:
+            raise ValueError(f"Cuadrilla {entity.id_cuadrilla} no encontrada")
+        orm.nombre = entity.nombre
+        orm.especialidad = entity.especialidad
+        orm.capacidad = entity.capacidad
+        orm.contacto = entity.contacto
+        self.db.commit()
+        self.db.refresh(orm)
         return self._to_entity(orm)
 
     def delete(self, id: int) -> None:
         orm = self.db.query(CuadrillaORM).filter(CuadrillaORM.id_cuadrilla == id).first()
-        if orm:
-            self.db.delete(orm)
-            self.db.commit()
+        if orm is None:
+            raise ValueError(f"Cuadrilla {id} no encontrada")
+        self.db.delete(orm)
+        self.db.commit()

@@ -23,3 +23,7 @@ class OrdenTrabajoRepositoryABC(ABC):
     @abstractmethod
     def update(self, entity: OrdenTrabajo) -> OrdenTrabajo:
         ...
+
+    @abstractmethod
+    def delete(self, id: int) -> None:
+        ...

@@ -1,127 +1,33 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from app.Infraestructura.database import get_db
-from app.Infraestructura.repositories.reclamo_repository import ReclamoRepository
-from app.Infraestructura.repositories.usuario_repository import UsuarioRepository
 from app.Presentation.schemas.reclamo import (
-    ReclamoCreate, ReclamoUpdate, ReclamoClasificar,
+    ReclamoCreate, ReclamoUpdate, ReclamoClasificar, ReclamoFiltros,
     ReclamoAsignarPlazo, ReclamoResolver, ReclamoCerrar,
-    ReclamoContactoUpdate, ReclamoResponse, ComprobanteResponse
+    ReclamoContactoUpdate, ReclamoResponse, ComprobanteResponse,
 )
-from app.Presentation.dependencies import get_current_user
+from app.Presentation.schemas.dashboard import MensajeResponse
+from app.Presentation.dependencies import get_current_user, require_roles, get_service, INTERNO, GESTION, ADMIN
+from app.Domain.Entities.catalogos import Rol
 from typing import List
-from datetime import date
 
 router = APIRouter(prefix="/reclamos", tags=["reclamos"])
 
-
-@router.get("/", response_model=List[ReclamoResponse])
-def listar_reclamos(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    return repo.get_all()
+_INTERNOS = {r.value for r in INTERNO}
 
 
-@router.get("/{id}", response_model=ReclamoResponse)
-def obtener_reclamo(id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    reclamo = repo.get_by_id(id)
-    if not reclamo:
-        raise HTTPException(status_code=404, detail="Reclamo no encontrado")
-    return reclamo
+def _es_interno(usuario) -> bool:
+    return usuario.rol in _INTERNOS
 
 
-@router.post("/", response_model=ReclamoResponse)
-def crear_reclamo(reclamo_data: ReclamoCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    data = reclamo_data.model_dump()
-    data["fecha_recepcion"] = date.today()
-    data["estado"] = "registrado"
-    return repo.create(data)
-
-
-@router.put("/{id}", response_model=ReclamoResponse)
-def actualizar_reclamo(id: int, reclamo_data: ReclamoUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    reclamo = repo.get_by_id(id)
-    if not reclamo:
-        raise HTTPException(status_code=404, detail="Reclamo no encontrado")
-    update_data = reclamo_data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(reclamo, key, value)
-    return repo.update(reclamo)
-
-
-@router.put("/{id}/clasificar", response_model=ReclamoResponse)
-def clasificar_reclamo(id: int, clasificacion: ReclamoClasificar, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    reclamo = repo.get_by_id(id)
-    if not reclamo:
-        raise HTTPException(status_code=404, detail="Reclamo no encontrado")
-    reclamo.servicio = clasificacion.servicio
-    reclamo.categoria = clasificacion.categoria
-    reclamo.urgencia = clasificacion.urgencia
-    reclamo.estado = "clasificado"
-    return repo.update(reclamo)
-
-
-@router.put("/{id}/asignar-plazo", response_model=ReclamoResponse)
-def asignar_plazo(id: int, plazo: ReclamoAsignarPlazo, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    reclamo = repo.get_by_id(id)
-    if not reclamo:
-        raise HTTPException(status_code=404, detail="Reclamo no encontrado")
-    reclamo.id_normativa = plazo.id_normativa
-    reclamo.fecha_tope = plazo.fecha_tope
-    return repo.update(reclamo)
-
-
-@router.put("/{id}/resolver", response_model=ReclamoResponse)
-def resolver_reclamo(id: int, resolucion: ReclamoResolver, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    reclamo = repo.get_by_id(id)
-    if not reclamo:
-        raise HTTPException(status_code=404, detail="Reclamo no encontrado")
-    reclamo.estado = "resuelto"
-    reclamo.resultado = resolucion.resultado
-    return repo.update(reclamo)
-
-
-@router.put("/{id}/cerrar", response_model=ReclamoResponse)
-def cerrar_reclamo(id: int, cierre: ReclamoCerrar, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    reclamo = repo.get_by_id(id)
-    if not reclamo:
-        raise HTTPException(status_code=404, detail="Reclamo no encontrado")
-    reclamo.estado = "cerrado"
-    reclamo.fecha_cierre = date.today()
-    reclamo.resultado = cierre.resultado
-    return repo.update(reclamo)
-
-
-@router.get("/{id}/comprobante", response_model=ComprobanteResponse)
-def obtener_comprobante(id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    reclamo = repo.get_by_id(id)
-    if not reclamo:
-        raise HTTPException(status_code=404, detail="Reclamo no encontrado")
-    return reclamo
+def _verificar_lectura(usuario, reclamo) -> None:
+    """El ciudadano solo accede a sus propios reclamos; el personal interno a todos."""
+    if _es_interno(usuario) or reclamo.id_usuario == usuario.id_usuario:
+        return
+    raise HTTPException(status_code=403, detail="Solo puede consultar sus propios reclamos")
 
 
 @router.get("/estado/{id_o_doc}")
-def consultar_estado(id_o_doc: str, db: Session = Depends(get_db)):
-    repo = ReclamoRepository(db)
-    try:
-        id_reclamo = int(id_o_doc)
-        reclamo = repo.get_by_id(id_reclamo)
-    except ValueError:
-        usuario_repo = UsuarioRepository(db)
-        usuario = usuario_repo.get_by_documento(id_o_doc)
-        if not usuario:
-            raise HTTPException(status_code=404, detail="No encontrado")
-        reclamos = [r for r in repo.get_all() if r.id_usuario == usuario.id_usuario]
-        reclamo = reclamos[-1] if reclamos else None
-    if not reclamo:
-        raise HTTPException(status_code=404, detail="Reclamo no encontrado")
+def consultar_estado(id_o_doc: str, servicio=Depends(get_service)):
+    reclamo = servicio["consultar_estado_reclamo"].execute(id_o_doc)
     return {
         "id_reclamo": reclamo.id_reclamo,
         "estado": reclamo.estado,
@@ -129,16 +35,121 @@ def consultar_estado(id_o_doc: str, db: Session = Depends(get_db)):
     }
 
 
-@router.put("/{id}/contacto")
-def actualizar_contacto(id: int, contacto: ReclamoContactoUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    reclamo_repo = ReclamoRepository(db)
-    reclamo = reclamo_repo.get_by_id(id)
-    if not reclamo:
-        raise HTTPException(status_code=404, detail="Reclamo no encontrado")
-    usuario_repo = UsuarioRepository(db)
-    usuario = usuario_repo.get_by_id(reclamo.id_usuario)
-    if usuario:
-        usuario.telefono = contacto.telefono
-        usuario.email = contacto.email
-        usuario_repo.update(usuario)
+@router.get("/", response_model=List[ReclamoResponse])
+def listar_reclamos(
+    filtros: ReclamoFiltros = Depends(),
+    servicio=Depends(get_service),
+    current_user=Depends(get_current_user),
+):
+    filtros_dict = filtros.model_dump(exclude_none=True)
+    if not _es_interno(current_user):
+        filtros_dict["id_usuario"] = current_user.id_usuario
+    return servicio["listar_reclamos"].execute(**filtros_dict)
+
+
+@router.post("/", response_model=ReclamoResponse, status_code=201)
+def crear_reclamo(
+    reclamo_data: ReclamoCreate,
+    servicio=Depends(get_service),
+    current_user=Depends(get_current_user),
+):
+    if not _es_interno(current_user) and reclamo_data.id_usuario != current_user.id_usuario:
+        raise HTTPException(status_code=403, detail="Solo puede registrar reclamos a su nombre")
+    return servicio["crear_reclamo"].execute(reclamo_data.model_dump())
+
+
+@router.get("/{id}", response_model=ReclamoResponse)
+def obtener_reclamo(
+    id: int,
+    servicio=Depends(get_service),
+    current_user=Depends(get_current_user),
+):
+    reclamo = servicio["obtener_reclamo"].execute(id)
+    _verificar_lectura(current_user, reclamo)
+    return reclamo
+
+
+@router.put("/{id}", response_model=ReclamoResponse)
+def actualizar_reclamo(
+    id: int,
+    reclamo_data: ReclamoUpdate,
+    servicio=Depends(get_service),
+    current_user=Depends(require_roles(*INTERNO)),
+):
+    return servicio["actualizar_reclamo"].execute(id, reclamo_data.model_dump(exclude_unset=True))
+
+
+@router.put("/{id}/clasificar", response_model=ReclamoResponse)
+def clasificar_reclamo(
+    id: int,
+    clasificacion: ReclamoClasificar,
+    servicio=Depends(get_service),
+    current_user=Depends(require_roles(*INTERNO)),
+):
+    return servicio["clasificar_reclamo"].execute(
+        id, clasificacion.servicio, clasificacion.categoria, clasificacion.urgencia
+    )
+
+
+@router.put("/{id}/asignar-plazo", response_model=ReclamoResponse)
+def asignar_plazo(
+    id: int,
+    plazo: ReclamoAsignarPlazo,
+    servicio=Depends(get_service),
+    current_user=Depends(require_roles(*GESTION)),
+):
+    return servicio["asignar_plazo"].execute(id, plazo.id_normativa, plazo.fecha_tope)
+
+
+@router.put("/{id}/resolver", response_model=ReclamoResponse)
+def resolver_reclamo(
+    id: int,
+    resolucion: ReclamoResolver,
+    servicio=Depends(get_service),
+    current_user=Depends(require_roles(*INTERNO)),
+):
+    return servicio["resolver_reclamo"].execute(id, resolucion.resultado)
+
+
+@router.put("/{id}/cerrar", response_model=ReclamoResponse)
+def cerrar_reclamo(
+    id: int,
+    cierre: ReclamoCerrar,
+    servicio=Depends(get_service),
+    current_user=Depends(require_roles(*GESTION)),
+):
+    return servicio["cerrar_reclamo"].execute(id, cierre.resultado)
+
+
+@router.get("/{id}/comprobante", response_model=ComprobanteResponse)
+def obtener_comprobante(
+    id: int,
+    servicio=Depends(get_service),
+    current_user=Depends(get_current_user),
+):
+    reclamo = servicio["obtener_reclamo"].execute(id)
+    _verificar_lectura(current_user, reclamo)
+    return reclamo
+
+
+@router.put("/{id}/contacto", response_model=MensajeResponse)
+def actualizar_contacto(
+    id: int,
+    contacto: ReclamoContactoUpdate,
+    servicio=Depends(get_service),
+    current_user=Depends(get_current_user),
+):
+    reclamo = servicio["obtener_reclamo"].execute(id)
+    _verificar_lectura(current_user, reclamo)
+    servicio["actualizar_contacto"].execute(id, contacto.telefono, contacto.email)
     return {"message": "Contacto actualizado", "status": "success"}
+
+
+@router.delete("/{id}", response_model=MensajeResponse)
+def eliminar_reclamo(
+    id: int,
+    servicio=Depends(get_service),
+    current_user=Depends(require_roles(*ADMIN)),
+):
+    servicio["eliminar_reclamo"].execute(id)
+    return {"message": "Reclamo eliminado", "status": "success"}

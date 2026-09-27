@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from app.Domain.Repositories.reporte_repository import ReporteRepositoryABC
 from app.Domain.Entities.reporte import Reporte
 from app.Infraestructura.database.models.reporte import ReporteORM
@@ -18,8 +18,12 @@ class ReporteRepository(ReporteRepositoryABC):
         )
 
     def get_all(self) -> List[Reporte]:
-        query = self.db.query(ReporteORM)
+        query = self.db.query(ReporteORM).order_by(ReporteORM.id_reporte.desc())
         return [self._to_entity(e) for e in query.all()]
+
+    def get_by_id(self, id: int) -> Optional[Reporte]:
+        orm = self.db.query(ReporteORM).filter(ReporteORM.id_reporte == id).first()
+        return self._to_entity(orm) if orm else None
 
     def get_by_tipo(self, tipo: str) -> List[Reporte]:
         query = self.db.query(ReporteORM).filter(ReporteORM.tipo_reporte == tipo)

@@ -1,6 +1,13 @@
 from enum import Enum
 
 
+class Rol(str, Enum):
+    ciudadano = "ciudadano"
+    tecnico = "tecnico"
+    supervisor = "supervisor"
+    admin = "admin"
+
+
 class Canal(str, Enum):
     presencial = "presencial"
     telefonico = "telefonico"
@@ -57,6 +64,16 @@ class EstadoParcial(str, Enum):
 class ViaAtencion(str, Enum):
     tecnica = "tecnica"
     comercial = "comercial"
+
+
+class TipoAreaComercial(str, Enum):
+    facturacion = "facturacion"
+    cobranza = "cobranza"
+
+
+class EstadoDerivacion(str, Enum):
+    derivada = "derivada"
+    resuelta = "resuelta"
 
 
 class ResultadoComercial(str, Enum):

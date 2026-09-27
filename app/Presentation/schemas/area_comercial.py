@@ -1,17 +1,22 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
+from app.Domain.Entities.catalogos import TipoAreaComercial
 
 
-class AreaComercialCreate(BaseModel):
-    nombre: str
-    tipo: str
-    contacto: str
+class BaseCatalogo(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
 
 
-class AreaComercialUpdate(BaseModel):
-    nombre: Optional[str] = None
-    tipo: Optional[str] = None
-    contacto: Optional[str] = None
+class AreaComercialCreate(BaseCatalogo):
+    nombre: str = Field(min_length=2, max_length=120)
+    tipo: TipoAreaComercial
+    contacto: str = Field(min_length=6, max_length=30)
+
+
+class AreaComercialUpdate(BaseCatalogo):
+    nombre: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    tipo: Optional[TipoAreaComercial] = None
+    contacto: Optional[str] = Field(default=None, min_length=6, max_length=30)
 
 
 class AreaComercialResponse(BaseModel):
@@ -20,5 +25,4 @@ class AreaComercialResponse(BaseModel):
     tipo: str
     contacto: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

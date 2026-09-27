@@ -1,17 +1,20 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
+import app.Infraestructura.database.models  # noqa: F401  registra todos los ORM en Base.metadata
 from app.Infraestructura.database import engine, Base
-from app.Infraestructura.tasks.scheduler import init_scheduler, shutdown_scheduler
-from app.Presentation.routes import auth, usuarios, reclamos, normativa, cuadrillas, areas_comerciales, seguimiento, plazos, reportes
+from app.Infraestructura.tasks import scheduler as scheduler_module
+from app.Domain.Exceptions import DomainError
+from app.Presentation.routes import auth, usuarios, reclamos, normativa, cuadrillas, areas_comerciales, seguimiento, plazos, reportes, dashboard
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
-    init_scheduler()
+    scheduler_module.init_scheduler()
     yield
-    shutdown_scheduler()
+    scheduler_module.shutdown_scheduler()
 
 
 app = FastAPI(
@@ -38,6 +41,12 @@ app.include_router(areas_comerciales.router)
 app.include_router(seguimiento.router)
 app.include_router(plazos.router)
 app.include_router(reportes.router)
+app.include_router(dashboard.router)
+
+
+@app.exception_handler(DomainError)
+async def manejar_error_dominio(request: Request, exc: DomainError):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.mensaje})
 
 
 @app.get("/")

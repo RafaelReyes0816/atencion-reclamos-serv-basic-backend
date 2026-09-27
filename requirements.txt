@@ -7,6 +7,8 @@ passlib[bcrypt]
 bcrypt==4.0.1
 python-multipart
 pydantic
+pydantic[email]
+email-validator
 apscheduler
 openpyxl
 python-dotenv

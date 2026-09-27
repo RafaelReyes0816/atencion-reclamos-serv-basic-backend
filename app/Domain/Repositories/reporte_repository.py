@@ -9,6 +9,10 @@ class ReporteRepositoryABC(ABC):
         ...
 
     @abstractmethod
+    def get_by_id(self, id: int) -> Optional[Reporte]:
+        ...
+
+    @abstractmethod
     def get_by_tipo(self, tipo: str) -> List[Reporte]:
         ...
 

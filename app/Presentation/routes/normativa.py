@@ -1,43 +1,68 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from app.Infraestructura.database import get_db
-from app.Infraestructura.repositories.normativa_plazo_repository import NormativaPlazoRepository
-from app.Presentation.schemas.normativa import NormativaCreate, NormativaUpdate, NormativaResponse
-from app.Presentation.dependencies import get_current_user
+from fastapi import APIRouter, Depends
+from app.Presentation.schemas.normativa import (
+    NormativaCreate, NormativaUpdate, NormativaFiltros, NormativaResponse
+)
+from app.Presentation.schemas.dashboard import MensajeResponse
+from app.Presentation.dependencies import require_roles, get_service, INTERNO, GESTION
+from app.Domain.Entities.catalogos import Servicio, Categoria, Urgencia
 from typing import List
 
 router = APIRouter(prefix="/normativa", tags=["normativa"])
 
 
-@router.get("/", response_model=List[NormativaResponse])
-def listar_normativa(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = NormativaPlazoRepository(db)
-    return repo.get_all()
-
-
 @router.get("/vigente", response_model=NormativaResponse)
-def obtener_vigente(servicio: str, categoria: str, urgencia: str, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = NormativaPlazoRepository(db)
-    from datetime import date
-    normativa = repo.get_vigente(servicio, categoria, urgencia, date.today())
-    if not normativa:
-        raise HTTPException(status_code=404, detail="No hay normativa vigente para esta combinación")
-    return normativa
+def obtener_vigente(
+    servicio: Servicio,
+    categoria: Categoria,
+    urgencia: Urgencia,
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*INTERNO)),
+):
+    return use_cases["obtener_normativa"].execute_vigente(servicio, categoria, urgencia)
 
 
-@router.post("/", response_model=NormativaResponse)
-def crear_normativa(normativa_data: NormativaCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = NormativaPlazoRepository(db)
-    return repo.create(normativa_data.model_dump())
+@router.get("/", response_model=List[NormativaResponse])
+def listar_normativa(
+    filtros: NormativaFiltros = Depends(),
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*INTERNO)),
+):
+    return use_cases["listar_normativa"].execute(**filtros.model_dump(exclude_none=True))
+
+
+@router.post("/", response_model=NormativaResponse, status_code=201)
+def crear_normativa(
+    normativa_data: NormativaCreate,
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*GESTION)),
+):
+    return use_cases["crear_normativa"].execute(normativa_data.model_dump())
+
+
+@router.get("/{id}", response_model=NormativaResponse)
+def obtener_normativa(
+    id: int,
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*INTERNO)),
+):
+    return use_cases["obtener_normativa"].execute(id)
 
 
 @router.put("/{id}", response_model=NormativaResponse)
-def actualizar_normativa(id: int, normativa_data: NormativaUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = NormativaPlazoRepository(db)
-    normativa = repo.get_vigente("a", "b", "c", date.today())
-    from app.Domain.Entities.normativa_plazo import NormativaPlazo
-    existing = NormativaPlazo(id_normativa=id, servicio="", categoria="", urgencia="", plazo_maximo_dias=0, vigencia_desde=date.today())
-    update_data = normativa_data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(existing, key, value)
-    return repo.update(existing)
+def actualizar_normativa(
+    id: int,
+    normativa_data: NormativaUpdate,
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*GESTION)),
+):
+    return use_cases["actualizar_normativa"].execute(id, normativa_data.model_dump(exclude_unset=True))
+
+
+@router.delete("/{id}", response_model=MensajeResponse)
+def eliminar_normativa(
+    id: int,
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*GESTION)),
+):
+    use_cases["eliminar_normativa"].execute(id)
+    return {"message": "Normativa eliminada", "status": "success"}

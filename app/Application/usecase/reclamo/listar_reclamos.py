@@ -7,5 +7,5 @@ class ListarReclamosUseCase:
     def __init__(self, repository: ReclamoRepositoryABC):
         self.repository = repository
 
-    def execute(self) -> List[Reclamo]:
-        return self.repository.get_all()
+    def execute(self, **filtros) -> List[Reclamo]:
+        return self.repository.get_filtrados(**filtros)

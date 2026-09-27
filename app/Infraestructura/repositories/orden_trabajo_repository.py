@@ -3,6 +3,7 @@ from sqlalchemy.orm import joinedload
 from app.Domain.Repositories.orden_trabajo_repository import OrdenTrabajoRepositoryABC
 from app.Domain.Entities.orden_trabajo import OrdenTrabajo
 from app.Infraestructura.database.models.orden_trabajo import OrdenTrabajoORM
+from app.Infraestructura.database.models.avance import AvanceORM
 
 
 class OrdenTrabajoRepository(OrdenTrabajoRepositoryABC):
@@ -53,8 +54,20 @@ class OrdenTrabajoRepository(OrdenTrabajoRepositoryABC):
         orm = self.db.query(OrdenTrabajoORM).filter(
             OrdenTrabajoORM.id_orden == entity.id_orden
         ).first()
-        if orm:
-            orm.estado_orden = entity.estado_orden
-            self.db.commit()
-            self.db.refresh(orm)
+        if orm is None:
+            raise ValueError(f"Orden de trabajo {entity.id_orden} no encontrada")
+        orm.id_reclamo = entity.id_reclamo
+        orm.cuadrilla = entity.cuadrilla
+        orm.fecha_asignacion = entity.fecha_asignacion
+        orm.estado_orden = entity.estado_orden
+        self.db.commit()
+        self.db.refresh(orm)
         return self._to_entity(orm)
+
+    def delete(self, id: int) -> None:
+        orm = self.db.query(OrdenTrabajoORM).filter(OrdenTrabajoORM.id_orden == id).first()
+        if orm is None:
+            raise ValueError(f"Orden de trabajo {id} no encontrada")
+        self.db.query(AvanceORM).filter(AvanceORM.id_orden == id).delete(synchronize_session=False)
+        self.db.delete(orm)
+        self.db.commit()

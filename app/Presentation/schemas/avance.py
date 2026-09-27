@@ -1,12 +1,18 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Optional
 from datetime import date
+from app.Domain.Entities.catalogos import EstadoParcial
 
 
-class AvanceCreate(BaseModel):
-    id_orden: int
+class BaseCatalogo(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class AvanceCreate(BaseCatalogo):
+    id_orden: int = Field(gt=0)
     fecha_avance: date
-    descripcion: str
-    estado_parcial: str
+    descripcion: str = Field(min_length=5, max_length=1000)
+    estado_parcial: EstadoParcial
 
 
 class AvanceResponse(BaseModel):
@@ -16,5 +22,4 @@ class AvanceResponse(BaseModel):
     descripcion: str
     estado_parcial: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

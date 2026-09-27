@@ -18,6 +18,12 @@ class DerivacionComercialRepository(DerivacionComercialRepositoryABC):
             reclamo=orm.reclamo,
         )
 
+    def get_by_id(self, id: int) -> Optional[DerivacionComercial]:
+        orm = self.db.query(DerivacionComercialORM).filter(
+            DerivacionComercialORM.id_derivacion == id
+        ).first()
+        return self._to_entity(orm) if orm else None
+
     def get_by_reclamo(self, id_reclamo: int) -> Optional[DerivacionComercial]:
         orm = self.db.query(DerivacionComercialORM).filter(
             DerivacionComercialORM.id_reclamo == id_reclamo
@@ -35,8 +41,12 @@ class DerivacionComercialRepository(DerivacionComercialRepositoryABC):
         orm = self.db.query(DerivacionComercialORM).filter(
             DerivacionComercialORM.id_derivacion == entity.id_derivacion
         ).first()
-        if orm:
-            orm.estado_derivacion = entity.estado_derivacion
-            self.db.commit()
-            self.db.refresh(orm)
+        if orm is None:
+            raise ValueError(f"Derivación {entity.id_derivacion} no encontrada")
+        orm.id_reclamo = entity.id_reclamo
+        orm.fecha_derivacion = entity.fecha_derivacion
+        orm.area_comercial = entity.area_comercial
+        orm.estado_derivacion = entity.estado_derivacion
+        self.db.commit()
+        self.db.refresh(orm)
         return self._to_entity(orm)

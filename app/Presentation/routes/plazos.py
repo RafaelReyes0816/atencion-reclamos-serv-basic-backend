@@ -1,61 +1,31 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from app.Infraestructura.database import get_db
-from app.Infraestructura.repositories.reclamo_repository import ReclamoRepository
-from app.Presentation.dependencies import get_current_user
-from datetime import date, timedelta
+from app.Presentation.dependencies import require_roles, get_service, GESTION
 
 router = APIRouter(prefix="/plazos", tags=["plazos"])
 
 
 @router.post("/verificar-vencimientos")
-def verificar_vencimientos(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    fecha_actual = date.today()
-    reclamos = repo.get_por_vencer(fecha_actual)
-    umbral = 0.2
-    avisos = []
-    for reclamo in reclamos:
-        if reclamo.fecha_tope:
-            dias_restantes = (reclamo.fecha_tope - fecha_actual).days
-            plazo_total = (reclamo.fecha_tope - reclamo.fecha_recepcion).days
-            if plazo_total > 0 and dias_restantes <= plazo_total * umbral:
-                avisos.append({
-                    "id_reclamo": reclamo.id_reclamo,
-                    "fecha_tope": reclamo.fecha_tope,
-                    "dias_restantes": dias_restantes,
-                })
+def verificar_vencimientos(
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*GESTION)),
+):
+    avisos = use_cases["detectar_vencimiento_proximo"].execute()
     return {"avisos": avisos, "total": len(avisos)}
 
 
 @router.post("/verificar-vencidos")
-def verificar_vencidos(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    fecha_actual = date.today()
-    reclamos = repo.get_vencidos(fecha_actual)
-    alertas = []
-    for reclamo in reclamos:
-        if reclamo.fecha_tope:
-            exceso_dias = (fecha_actual - reclamo.fecha_tope).days
-            alertas.append({
-                "id_reclamo": reclamo.id_reclamo,
-                "fecha_tope": reclamo.fecha_tope,
-                "exceso_dias": exceso_dias,
-            })
-            repo.update_estado(reclamo.id_reclamo, "escalado")
+def verificar_vencidos(
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*GESTION)),
+):
+    alertas = use_cases["detectar_reclamo_vencido"].execute()
     return {"alertas": alertas, "total": len(alertas)}
 
 
 @router.post("/verificar-criticos")
-def verificar_criticos(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    repo = ReclamoRepository(db)
-    reclamos = repo.get_criticos()
-    alarmas = []
-    for reclamo in reclamos:
-        alarmas.append({
-            "id_reclamo": reclamo.id_reclamo,
-            "servicio": reclamo.servicio,
-            "categoria": reclamo.categoria,
-            "urgencia": reclamo.urgencia,
-        })
+def verificar_criticos(
+    use_cases=Depends(get_service),
+    current_user=Depends(require_roles(*GESTION)),
+):
+    alarmas = use_cases["detectar_reclamo_critico"].execute()
     return {"alarmas": alarmas, "total": len(alarmas)}

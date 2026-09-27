@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, ForeignKey
+from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship
 from app.Infraestructura.database import Base
 
@@ -13,5 +13,6 @@ class UsuarioORM(Base):
     contraseña_hash = Column(String, nullable=False)
     email = Column(String, nullable=True)
     direccion = Column(String, nullable=False)
+    rol = Column(String, nullable=False, server_default="ciudadano", index=True, default="ciudadano")
 
     reclamos = relationship("ReclamoORM", back_populates="usuario")

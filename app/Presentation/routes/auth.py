@@ -2,9 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.Infraestructura.database import get_db
-from app.Infraestructura.security import verify_password, get_password_hash, create_access_token
+from app.Infraestructura.security import verify_password, create_access_token
 from app.Infraestructura.repositories.usuario_repository import UsuarioRepository
 from app.Presentation.schemas.usuario import UsuarioCreate, UsuarioResponse
+from app.Presentation.dependencies import get_service
+from app.Domain.Entities.catalogos import Rol
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -19,19 +21,18 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             detail="Documento o contraseña incorrectos",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token = create_access_token(data={"sub": orm.id_usuario})
-    return {"access_token": access_token, "token_type": "bearer"}
+    access_token = create_access_token(data={"sub": str(orm.id_usuario), "rol": orm.rol})
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "rol": orm.rol,
+        "id_usuario": orm.id_usuario,
+        "nombre": orm.nombre,
+    }
 
 
-@router.post("/register", response_model=UsuarioResponse)
-def register(usuario_data: UsuarioCreate, db: Session = Depends(get_db)):
-    repo = UsuarioRepository(db)
-    existing = repo.get_by_documento(usuario_data.documento)
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ya existe un usuario con ese documento",
-        )
-    data = usuario_data.model_dump()
-    data["direccion"] = data.get("direccion", "")
-    return repo.create(data)
+@router.post("/register", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
+def register(usuario_data: UsuarioCreate, servicio=Depends(get_service)):
+    """Registro público. Siempre crea un usuario con rol `ciudadano`."""
+    data = usuario_data.model_dump(exclude={"rol"})
+    return servicio["crear_usuario"].execute(data, rol=Rol.ciudadano.value)

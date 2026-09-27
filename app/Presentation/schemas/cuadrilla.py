@@ -1,19 +1,24 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
+from app.Domain.Entities.catalogos import Servicio
 
 
-class CuadrillaCreate(BaseModel):
-    nombre: str
-    especialidad: str
-    capacidad: int
-    contacto: str
+class BaseCatalogo(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
 
 
-class CuadrillaUpdate(BaseModel):
-    nombre: Optional[str] = None
-    especialidad: Optional[str] = None
-    capacidad: Optional[int] = None
-    contacto: Optional[str] = None
+class CuadrillaCreate(BaseCatalogo):
+    nombre: str = Field(min_length=2, max_length=120)
+    especialidad: Servicio
+    capacidad: int = Field(gt=0, le=999)
+    contacto: str = Field(min_length=6, max_length=30)
+
+
+class CuadrillaUpdate(BaseCatalogo):
+    nombre: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    especialidad: Optional[Servicio] = None
+    capacidad: Optional[int] = Field(default=None, gt=0, le=999)
+    contacto: Optional[str] = Field(default=None, min_length=6, max_length=30)
 
 
 class CuadrillaResponse(BaseModel):
@@ -23,5 +28,4 @@ class CuadrillaResponse(BaseModel):
     capacidad: int
     contacto: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

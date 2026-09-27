@@ -33,16 +33,18 @@ class AreaComercialRepository(AreaComercialRepositoryABC):
 
     def update(self, entity: AreaComercial) -> AreaComercial:
         orm = self.db.query(AreaComercialORM).filter(AreaComercialORM.id_area == entity.id_area).first()
-        if orm:
-            orm.nombre = entity.nombre
-            orm.tipo = entity.tipo
-            orm.contacto = entity.contacto
-            self.db.commit()
-            self.db.refresh(orm)
+        if orm is None:
+            raise ValueError(f"Área comercial {entity.id_area} no encontrada")
+        orm.nombre = entity.nombre
+        orm.tipo = entity.tipo
+        orm.contacto = entity.contacto
+        self.db.commit()
+        self.db.refresh(orm)
         return self._to_entity(orm)
 
     def delete(self, id: int) -> None:
         orm = self.db.query(AreaComercialORM).filter(AreaComercialORM.id_area == id).first()
-        if orm:
-            self.db.delete(orm)
-            self.db.commit()
+        if orm is None:
+            raise ValueError(f"Área comercial {id} no encontrada")
+        self.db.delete(orm)
+        self.db.commit()

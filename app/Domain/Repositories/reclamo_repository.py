@@ -14,7 +14,23 @@ class ReclamoRepositoryABC(ABC):
         ...
 
     @abstractmethod
+    def get_by_usuario(self, id_usuario: int) -> List[Reclamo]:
+        ...
+
+    @abstractmethod
     def get_by_estado(self, estado: str) -> List[Reclamo]:
+        ...
+
+    @abstractmethod
+    def get_filtrados(
+        self,
+        estado: Optional[str] = None,
+        servicio: Optional[str] = None,
+        categoria: Optional[str] = None,
+        urgencia: Optional[str] = None,
+        canal: Optional[str] = None,
+        id_usuario: Optional[int] = None,
+    ) -> List[Reclamo]:
         ...
 
     @abstractmethod
@@ -35,6 +51,10 @@ class ReclamoRepositoryABC(ABC):
 
     @abstractmethod
     def update(self, entity: Reclamo) -> Reclamo:
+        ...
+
+    @abstractmethod
+    def delete(self, id: int) -> None:
         ...
 
     @abstractmethod
