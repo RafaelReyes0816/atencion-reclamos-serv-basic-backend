@@ -17,4 +17,8 @@ class CrearReclamoUseCase:
             raise NoEncontradoError("Usuario no encontrado")
         data["fecha_recepcion"] = date.today()
         data["estado"] = EstadoReclamo.registrado.value
+        # Identificacion de la cuenta: es texto libre del titular, no el
+        # Usuario del reclamo, asi que se normaliza pero no se cruza con el.
+        for campo in ("nombre_cuenta", "direccion"):
+            data[campo] = data[campo].strip()
         return self.reclamo_repo.create(data)

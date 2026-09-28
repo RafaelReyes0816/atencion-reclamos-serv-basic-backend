@@ -130,7 +130,7 @@ def get_service(db: Session = Depends(get_db)):
         "eliminar_reclamo": EliminarReclamoUseCase(reclamo_repo),
         "clasificar_reclamo": ClasificarReclamoUseCase(reclamo_repo),
         "asignar_plazo": AsignarPlazoUseCase(reclamo_repo, normativa_repo),
-        "resolver_reclamo": ResolverReclamoUseCase(reclamo_repo),
+        "resolver_reclamo": ResolverReclamoUseCase(reclamo_repo, orden_repo, avance_repo),
         "cerrar_reclamo": CerrarReclamoUseCase(reclamo_repo),
         "actualizar_contacto": ActualizarContactoUseCase(reclamo_repo, usuario_repo),
         # Normativa
@@ -155,7 +155,7 @@ def get_service(db: Session = Depends(get_db)):
         "listar_ordenes": ListarOrdenesUseCase(orden_repo),
         "obtener_orden": ObtenerOrdenUseCase(orden_repo),
         "crear_orden": CrearOrdenUseCase(orden_repo, reclamo_repo),
-        "actualizar_orden": ActualizarOrdenUseCase(orden_repo, reclamo_repo),
+        "actualizar_orden": ActualizarOrdenUseCase(orden_repo, reclamo_repo, avance_repo),
         "eliminar_orden": EliminarOrdenUseCase(orden_repo),
         "listar_avances": ListarAvancesUseCase(avance_repo),
         "crear_avance": CrearAvanceUseCase(avance_repo, orden_repo),

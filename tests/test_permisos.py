@@ -105,6 +105,7 @@ def test_ciudadano_crea_reclamo_propio(client, headers_ciudadano, usuario_ciudad
     response = client.post("/reclamos/", headers=headers_ciudadano, json={
         "id_usuario": usuario_ciudadano.id_usuario, "canal": "web", "servicio": "agua",
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Fuga en mi casa",
+        "nombre_cuenta": "Cuenta Prueba", "direccion": "Calle 45 # 12-30",
     })
     assert response.status_code == 201
 
@@ -113,6 +114,7 @@ def test_ciudadano_no_crea_reclamo_para_otro(client, headers_ciudadano, usuario_
     response = client.post("/reclamos/", headers=headers_ciudadano, json={
         "id_usuario": usuario_admin.id_usuario, "canal": "web", "servicio": "agua",
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Fuga ajena",
+        "nombre_cuenta": "Cuenta Prueba", "direccion": "Calle 45 # 12-30",
     })
     assert response.status_code == 403
 
@@ -121,6 +123,7 @@ def test_supervisor_registra_reclamo_por_ventanilla(client, headers_supervisor, 
     response = client.post("/reclamos/", headers=headers_supervisor, json={
         "id_usuario": usuario_ciudadano.id_usuario, "canal": "web", "servicio": "agua",
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Reclamo por ventanilla",
+        "nombre_cuenta": "Cuenta Prueba", "direccion": "Calle 45 # 12-30",
     })
     assert response.status_code == 201
 
@@ -129,6 +132,7 @@ def test_ciudadano_no_ve_reclamo_ajeno(client, headers_ciudadano, headers_admin,
     ajeno = client.post("/reclamos/", headers=headers_admin, json={
         "id_usuario": usuario_admin.id_usuario, "canal": "web", "servicio": "luz",
         "categoria": "corte", "urgencia": "alta", "descripcion": "Corte en la calle",
+        "nombre_cuenta": "Cuenta Prueba", "direccion": "Calle 45 # 12-30",
     })
     assert ajeno.status_code == 201
     assert client.get(f"/reclamos/{ajeno.json()['id_reclamo']}", headers=headers_ciudadano).status_code == 403
@@ -138,10 +142,12 @@ def test_lista_reclamos_de_ciudadano_filtrada(client, headers_ciudadano, headers
     client.post("/reclamos/", headers=headers_ciudadano, json={
         "id_usuario": usuario_ciudadano.id_usuario, "canal": "web", "servicio": "agua",
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Fuga propia del ciudadano",
+        "nombre_cuenta": "Cuenta Prueba", "direccion": "Calle 45 # 12-30",
     })
     client.post("/reclamos/", headers=headers_admin, json={
         "id_usuario": usuario_admin.id_usuario, "canal": "web", "servicio": "luz",
         "categoria": "corte", "urgencia": "alta", "descripcion": "Corte ajeno del admin",
+        "nombre_cuenta": "Cuenta Prueba", "direccion": "Calle 45 # 12-30",
     })
     response = client.get("/reclamos/", headers=headers_ciudadano)
     assert response.status_code == 200
@@ -154,10 +160,12 @@ def test_lista_reclamos_interno_ve_todos(client, headers_tecnico, headers_ciudad
     client.post("/reclamos/", headers=headers_ciudadano, json={
         "id_usuario": usuario_ciudadano.id_usuario, "canal": "web", "servicio": "agua",
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Fuga del ciudadano",
+        "nombre_cuenta": "Cuenta Prueba", "direccion": "Calle 45 # 12-30",
     })
     client.post("/reclamos/", headers=headers_admin, json={
         "id_usuario": usuario_admin.id_usuario, "canal": "web", "servicio": "luz",
         "categoria": "corte", "urgencia": "alta", "descripcion": "Corte del admin",
+        "nombre_cuenta": "Cuenta Prueba", "direccion": "Calle 45 # 12-30",
     })
     respuesta = client.get("/reclamos/", headers=headers_tecnico)
     assert respuesta.status_code == 200
@@ -186,6 +194,7 @@ def test_tecnico_no_puede_cerrar_reclamos(client, headers_tecnico, headers_admin
     reclamo = client.post("/reclamos/", headers=headers_admin, json={
         "id_usuario": usuario_admin.id_usuario, "canal": "web", "servicio": "agua",
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Reclamo para cerrar",
+        "nombre_cuenta": "Cuenta Prueba", "direccion": "Calle 45 # 12-30",
     }).json()
     id_reclamo = reclamo["id_reclamo"]
     resolver = client.put(

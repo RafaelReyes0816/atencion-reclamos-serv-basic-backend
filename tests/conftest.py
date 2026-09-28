@@ -168,6 +168,8 @@ def reclamo_creado(headers_admin, usuario_id, client):
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga en tuberia principal",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 201, response.text

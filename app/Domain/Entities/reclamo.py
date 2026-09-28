@@ -18,6 +18,8 @@ class Reclamo:
     fecha_tope: Optional[date] = None
     fecha_cierre: Optional[date] = None
     resultado: Optional[str] = None
+    nombre_cuenta: Optional[str] = None
+    direccion: Optional[str] = None
     usuario: Optional[object] = field(default=None)
     normativa: Optional[object] = field(default=None)
     orden_trabajo: Optional[object] = field(default=None)

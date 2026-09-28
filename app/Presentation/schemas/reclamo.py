@@ -17,6 +17,8 @@ class ReclamoCreate(BaseCatalogo):
     categoria: Categoria
     urgencia: Urgencia
     descripcion: str = Field(min_length=5, max_length=1000)
+    nombre_cuenta: str = Field(min_length=3, max_length=120)
+    direccion: str = Field(min_length=5, max_length=255)
 
 
 class ReclamoUpdate(BaseCatalogo):
@@ -25,6 +27,8 @@ class ReclamoUpdate(BaseCatalogo):
     categoria: Optional[Categoria] = None
     urgencia: Optional[Urgencia] = None
     descripcion: Optional[str] = Field(default=None, min_length=5, max_length=1000)
+    nombre_cuenta: Optional[str] = Field(default=None, min_length=3, max_length=120)
+    direccion: Optional[str] = Field(default=None, min_length=5, max_length=255)
     id_normativa: Optional[int] = None
     estado: Optional[EstadoReclamo] = None
     fecha_tope: Optional[date] = None
@@ -55,6 +59,8 @@ class ReclamoCerrar(BaseCatalogo):
 class ReclamoContactoUpdate(BaseCatalogo):
     telefono: str = Field(min_length=6, max_length=30)
     email: Optional[EmailStr] = None
+    nombre_cuenta: Optional[str] = Field(default=None, min_length=3, max_length=120)
+    direccion: Optional[str] = Field(default=None, min_length=5, max_length=255)
 
 
 class ReclamoFiltros(BaseCatalogo):
@@ -80,6 +86,8 @@ class ReclamoResponse(BaseModel):
     fecha_tope: Optional[date] = None
     fecha_cierre: Optional[date] = None
     resultado: Optional[str] = None
+    nombre_cuenta: Optional[str] = None
+    direccion: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -92,4 +100,6 @@ class ComprobanteResponse(BaseModel):
     servicio: str
     categoria: str
     descripcion: str
+    nombre_cuenta: Optional[str] = None
+    direccion: Optional[str] = None
     fecha_tope: Optional[date] = None

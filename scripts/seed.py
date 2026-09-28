@@ -241,6 +241,8 @@ def seed_reclamos(db, ids):
                 "categoria": categoria,
                 "urgencia": urgencia,
                 "descripcion": desc,
+                "nombre_cuenta": f"Cuenta Demo {idx:02d}",
+                "direccion": f"Calle {10 + idx} # {20 + idx}-15, Bogota",
                 "estado": estado,
                 "fecha_tope": date.today() + timedelta(days=offset),
             })

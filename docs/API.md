@@ -45,9 +45,9 @@ cualquiera (no cerrado) ──scheduler vencidos──> escalado
 **Transiciones importantes:**
 - **Crear orden de trabajo** (`POST /seguimiento/ordenes`) cambia el reclamo a `en_atencion_tecnica`.
 - **Crear derivación comercial** (`POST /seguimiento/derivaciones`) cambia el reclamo a `en_atencion_comercial`.
-- **Marcar orden como resuelta** (`PUT /seguimiento/ordenes/{id}` con `estado_orden: "resuelta"`) cambia el reclamo a `resuelto`.
+- **Marcar orden como resuelta** (`PUT /seguimiento/ordenes/{id}` con `estado_orden: "resuelta"`) cambia el reclamo a `resuelto`. **Exige al menos un avance registrado en la orden** (`409` si no hay).
 - **Marcar derivación como resuelta** (`PUT /seguimiento/derivaciones/{id}` con `estado_derivacion: "resuelta"`) cambia el reclamo a `resuelto`.
-- **Resolver** (`PUT /reclamos/{id}/resolver`) requiere que el reclamo NO esté en `registrado` ni `cerrado`.
+- **Resolver** (`PUT /reclamos/{id}/resolver`) requiere que el reclamo NO esté en `registrado` ni `cerrado`. Si el reclamo tiene orden de trabajo, la orden debe tener avances registrados (`409` si no hay).
 - **Cerrar** (`PUT /reclamos/{id}/cerrar`) requiere que el reclamo esté en `resuelto`.
 
 ---
@@ -257,9 +257,19 @@ Crear nuevo reclamo. **Requiere auth.** `404` si `id_usuario` no existe. Un `ciu
   "servicio": "agua",
   "categoria": "fuga",
   "urgencia": "alta",
-  "descripcion": "Fuga en tubería principal"
+  "descripcion": "Fuga en tubería principal",
+  "nombre_cuenta": "Inmobiliaria Torres",
+  "direccion": "Calle 45 # 12-30"
 }
 ```
+
+| Campo | Regla |
+|-------|-------|
+| `nombre_cuenta` | **Requerido.** 3–120 caracteres. Titular de la cuenta donde ocurre el problema; puede ser un tercero distinto del `Usuario` del reclamo. |
+| `direccion` | **Requerido.** 5–255 caracteres. Dirección donde se presenta la falla. |
+
+Ambos se guardan en el reclamo, no en el usuario. Un `ciudadano` puede tener un titular distinto
+de la cuenta; lo que sí se fuerza es `id_usuario`.
 
 **Response:** `201` `ReclamoResponse` (con `estado: "registrado"` y `fecha_recepcion` asignados)
 
@@ -292,6 +302,8 @@ Actualizar reclamo. **Requiere rol interno** (`tecnico`, `supervisor` o `admin`)
   "categoria": "fuga",
   "urgencia": "alta",
   "descripcion": "Descripción actualizada",
+  "nombre_cuenta": "Pedro Ramírez",
+  "direccion": "Carrera 7 # 88-20",
   "id_normativa": 1,
   "fecha_tope": "2026-10-15",
   "resultado": "resuelto"
@@ -323,6 +335,11 @@ Asignar plazo regulatorio. **Requiere rol interno.** `404` si la normativa no ex
 ### PUT `/reclamos/{id}/resolver`
 Resolver reclamo. **Requiere rol interno.** `409` si está `cerrado` o `registrado`.
 
+Además, **si el reclamo tiene orden de trabajo, esta debe tener al menos un avance
+registrado** — de lo contrario `409` con el mensaje *"La orden de trabajo no tiene avances
+registrados; regístralos antes de resolver"*. Un reclamo **sin** orden se puede resolver
+directamente: no hay avances que exigir.
+
 **Request Body:**
 ```json
 { "resultado": "resuelto", "detalle": "Reparado" }
@@ -353,7 +370,9 @@ Obtener comprobante. **Requiere auth.** Un `ciudadano` solo obtiene los de sus p
   "servicio": "agua",
   "categoria": "fuga",
   "descripcion": "Fuga en tubería principal",
-  "fecha_tope": "2026-10-10"
+  "fecha_tope": "2026-10-10",
+  "nombre_cuenta": "Inmobiliaria Torres",
+  "direccion": "Calle 45 # 12-30"
 }
 ```
 
@@ -361,9 +380,24 @@ Obtener comprobante. **Requiere auth.** Un `ciudadano` solo obtiene los de sus p
 Actualizar datos de contacto del reclamante. **Requiere auth.** Un `ciudadano` solo puede
 actualizar el contacto de sus propios reclamos.
 
+Actualiza dos entidades distintas según el campo:
+
+| Campo | Entidad que se escribe |
+|-------|------------------------|
+| `telefono`, `email` | `usuarios` (el reclamante) |
+| `nombre_cuenta`, `direccion` | `reclamos` (la cuenta del servicio) |
+
+`telefono` es requerido; `email`, `nombre_cuenta` y `direccion` son opcionales y, si se
+omiten, conservan su valor actual.
+
 **Request Body:**
 ```json
-{ "telefono": "555-0100", "email": "nuevo@correo.com" }
+{
+  "telefono": "555-0100",
+  "email": "nuevo@correo.com",
+  "nombre_cuenta": "Pedro Ramírez",
+  "direccion": "Carrera 7 # 88-20"
+}
 ```
 
 **Response:** `200`
@@ -531,6 +565,10 @@ Crear orden. **Requiere rol interno.** `404` si el reclamo no existe, `409` si y
 Actualizar orden. **Requiere rol interno.** Solo los campos enviados.
 `estado_orden`: `asignada` | `en_curso` | `resuelta`
 **Si se cambia a `resuelta`, el reclamo asociado pasa a `resuelto`.**
+
+**`409` si se solicita `resuelta` y la orden no tiene avances registrados.** La regla solo
+aplica a culminar: reasignar cuadrilla o fecha en una orden sin avances sí se permite.
+Mensaje: *"La orden de trabajo no tiene avances registrados; regístralos antes de resolver"*.
 
 **Request Body:**
 ```json

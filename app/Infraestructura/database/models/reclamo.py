@@ -15,6 +15,11 @@ class ReclamoORM(Base):
     categoria = Column(String, nullable=False)
     urgencia = Column(String, nullable=False)
     descripcion = Column(String, nullable=False)
+    # Titular de la cuenta donde ocurre el problema. NO es necesariamente el
+    #Usuario del reclamo: un interno puede registrarlo a nombre de un
+    #ciudadano sobre una cuenta de un tercero. Nullable solo por legado.
+    nombre_cuenta = Column(String(120), nullable=True)
+    direccion = Column(String(255), nullable=True)
     estado = Column(String, nullable=False, default="registrado")
     fecha_tope = Column(Date, nullable=True)
     fecha_cierre = Column(Date, nullable=True)

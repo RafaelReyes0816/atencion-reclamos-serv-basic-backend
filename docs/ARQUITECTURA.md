@@ -154,6 +154,32 @@ Los use cases lanzan `DomainError` (o sus derivados) desde `app/Domain/Exception
 | `NoEncontradoError` | 404 | El recurso no existe |
 | `DuplicadoError` | 400 | Documento ya registrado |
 | `ConflictoError` | 409 | Transición de estado inválida |
+
+### Invariante: una atención técnica culmina con avances
+
+Una orden de trabajo no puede pasar a `resuelta` sin al menos un avance registrado, y un
+reclamo con orden tampoco puede resolverse por `PUT /reclamos/{id}/resolver`. Ambas reglas
+viven en la capa Application, no en las rutas:
+
+- `ActualizarOrdenUseCase` — valida solo cuando el payload pide `estado_orden: "resuelta"`,
+  antes de mutar, y deja la orden en su estado anterior si rechaza.
+- `ResolverReclamoUseCase` — carga la orden del reclamo y aplica el mismo criterio.
+
+Ambas comparten la constante `SIN_AVANCES` de `gestionar_orden.py`. Un reclamo **sin**
+orden se resuelve sin restricciones adicionales, porque no hay avances que exigir.
+La UI replica la guarda en `AvancesTrabajo.jsx`, pero la garantía real es del backend.
+
+### `nombre_cuenta` y `direccion` viven en el reclamo
+
+Son la identificación de la **cuenta del servicio**, no del reclamante. `Usuario.direccion`
+existe aparte y sigue siendo la dirección de la persona. Por eso `PUT /reclamos/{id}/contacto`
+escribe en dos tablas según el campo: `telefono`/`email` en `usuarios`,
+`nombre_cuenta`/`direccion` en `reclamos`.
+
+Ambos son obligatorios al crear (`ReclamoCreate`) y opcionales al actualizar
+(`ReclamoUpdate`, `ReclamoContactoUpdate`). En la entidad y el ORM son `Optional` y las
+columnas allow-null para tolerar filas anteriores a la migración; `scripts/migrar_esquema.py`
+las agrega y las backfillea desde `usuarios.nombre` y `usuarios.direccion`.
 | `ValidacionError` | 422 | Valor fuera de catálogo o regla de negocio |
 | `SinPermisosError` | 403 | Rol insuficiente |
 
@@ -254,6 +280,8 @@ erDiagram
         string categoria
         string urgencia
         string descripcion
+        string nombre_cuenta
+        string direccion
         string estado
         date fecha_tope
         date fecha_cierre
