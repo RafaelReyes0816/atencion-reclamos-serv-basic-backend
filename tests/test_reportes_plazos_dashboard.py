@@ -15,6 +15,38 @@ def test_generar_reporte_mensual_retorna_201(client, auth_headers):
     assert "id_reporte" in response.json()
 
 
+def test_generar_reporte_mensual_por_defecto_usa_mes_anterior(client, auth_headers):
+    esperado = (HOY.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    response = client.post("/reportes/mensual", headers=auth_headers)
+    assert response.status_code == 201
+    assert response.json()["periodo"] == esperado
+
+
+def test_generar_reporte_mensual_acepta_periodo_explicito(client, auth_headers, reclamo_creado):
+    periodo = HOY.strftime("%Y-%m")
+    response = client.post(f"/reportes/mensual?periodo={periodo}", headers=auth_headers)
+    assert response.status_code == 201
+    body = response.json()
+    assert body["periodo"] == periodo
+    # El reclamo del fixture seCreo hoy, asi que el mes en curso no va en cero.
+    detalle = client.get(f"/reportes/{body['id_reporte']}", headers=auth_headers).json()
+    assert detalle["datos"]["total_ingresados"] >= 1
+    assert detalle["datos"]["periodo"] == periodo
+
+
+def test_generar_reporte_mensual_periodo_invalido_retorna_422(client, auth_headers):
+    assert client.post("/reportes/mensual?periodo=2026-13", headers=auth_headers).status_code == 422
+    assert client.post("/reportes/mensual?periodo=septiembre", headers=auth_headers).status_code == 422
+
+
+def test_generar_reporte_mensual_ignora_reclamos_de_otros_meses(client, auth_headers, reclamo_creado):
+    otro = (HOY.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+    response = client.post(f"/reportes/mensual?periodo={otro}", headers=auth_headers)
+    detalle = client.get(f"/reportes/{response.json()['id_reporte']}", headers=auth_headers).json()
+    # El unico reclamo es de hoy, asi que el mes anterior queda en cero.
+    assert detalle["datos"]["total_ingresados"] == 0
+
+
 def test_obtener_reporte_desglosado(client, auth_headers):
     id_reporte = client.post("/reportes/diario", headers=auth_headers).json()["id_reporte"]
     response = client.get(f"/reportes/{id_reporte}", headers=auth_headers)

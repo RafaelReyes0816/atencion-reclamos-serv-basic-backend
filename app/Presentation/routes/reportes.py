@@ -1,7 +1,7 @@
 import json
 from io import BytesIO
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -49,16 +49,31 @@ def generar_reporte_diario(
     current_user=Depends(require_roles(*GESTION)),
 ):
     resultado = use_cases["generar_reporte_diario"].execute()
-    return {"message": "Reporte diario generado", "id_reporte": resultado["id_reporte"]}
+    return {
+        "message": f"Reporte diario {resultado['fecha']} generado",
+        "id_reporte": resultado["id_reporte"],
+        "periodo": resultado["fecha"],
+    }
 
 
 @router.post("/mensual", response_model=ReporteGeneradoResponse, status_code=201)
 def generar_reporte_mensual(
+    periodo: str | None = Query(
+        None,
+        description=(
+            "Mes a reportar en formato AAAA-MM. Si se omite se usa el mes "
+            "anterior, que es el periodo cerrado que reporta el job programado."
+        ),
+    ),
     use_cases=Depends(get_service),
     current_user=Depends(require_roles(*GESTION)),
 ):
-    resultado = use_cases["generar_reporte_mensual"].execute()
-    return {"message": "Reporte mensual generado", "id_reporte": resultado["id_reporte"]}
+    resultado = use_cases["generar_reporte_mensual"].execute(periodo)
+    return {
+        "message": f"Reporte mensual {resultado['periodo']} generado",
+        "id_reporte": resultado["id_reporte"],
+        "periodo": resultado["periodo"],
+    }
 
 
 @router.get("/{id}/excel")

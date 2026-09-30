@@ -16,6 +16,8 @@ class ReporteResponse(BaseModel):
 class ReporteGeneradoResponse(BaseModel):
     message: str
     id_reporte: int
+    # El mensual lo devuelve; el diario no tiene período y lo deja en None.
+    periodo: str | None = None
 
 
 class ReporteContenidoResponse(BaseModel):
