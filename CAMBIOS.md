@@ -2,9 +2,11 @@
 
 Registro técnico de los cambios aplicados al backend (FastAPI + SQLAlchemy + PostgreSQL).
 
-- **Alcance:** 53 archivos modificados, 10 eliminados y 31 creados (93 en total).
-- **Balance del diff:** +4842 / −1239 líneas.
-- **Estado:** `191 passed` en verde (`pytest`, 202 s, código de salida 0).
+- **Alcance:** 53 archivos modificados, 10 eliminados y 31 creados (93 en total), más 19
+  modificados en la sección 17.
+- **Balance del diff:** +4842 / −1239 líneas, más +428 / −13 en la sección 17.
+- **Estado:** `201 passed`, `2 failed` (`pytest`, 347 s). Los 2 fallos son preexistentes y
+  están documentados abajo y en `AGENTS.md`.
 - **Arquitectura:** Clean Architecture con la regla de dependencia estricta
   `Presentation → Application → Domain ← Infraestructura`.
 
@@ -441,7 +443,129 @@ de arranque). `conftest.py` tambien sigue importando de `app.main`.
 
 ---
 
-## 17. Medidores
+## 17. Identificacion de la cuenta del reclamo y cierre tecnico con avances
+
+Tres cambios de comportamiento, verificandose contra PostgreSQL real. 19 archivos
+modificados, +428 / −13 líneas.
+
+### 17.1 `nombre_cuenta` y `direccion` en el reclamo
+
+Identifican la **cuenta del servicio**, no a la persona que reclama. El titular puede ser
+un tercero: un interno registra el reclamo a nombre de un ciudadano sobre una cuenta que
+no es suya.
+
+- `nombre_cuenta`: texto libre, 3–120 caracteres.
+- `direccion`: 5–255 caracteres.
+
+Se guardan en `reclamos` y no en `usuarios`, porque `Usuario.direccion` ya significa la
+direccion de la persona. Esa separacion es la que obliga a que `PUT /reclamos/{id}/contacto`
+escriba en dos tablas segun el campo.
+
+| Archivo | Cambio |
+|---------|--------|
+| `app/Infraestructura/database/models/reclamo.py` | Columnas `nombre_cuenta VARCHAR(120)` y `direccion VARCHAR(255)`, ambas `nullable=True` |
+| `app/Domain/Entities/reclamo.py` | `Optional[str] = None` en el dataclass |
+| `app/Infraestructura/repositories/reclamo_repository.py` | `_to_entity()` las lee; `update()` las copia |
+| `app/Presentation/schemas/reclamo.py` | Requeridas en `ReclamoCreate`; opcionales en `ReclamoUpdate` y `ReclamoContactoUpdate`; presentes en `ReclamoResponse` y `ComprobanteResponse` |
+| `app/Application/usecase/reclamo/crear_reclamo.py` | Normaliza con `.strip()` |
+| `app/Application/usecase/reclamo/actualizar_contacto.py` | `telefono`/`email` en `usuarios`; `nombre_cuenta`/`direccion` en `reclamos`. Si se omiten, conservan su valor |
+| `app/Presentation/routes/reclamos.py` | Pasa los campos nuevos al use case |
+| `scripts/seed.py` | Los 13 reclamos demo se crean con cuenta y direccion |
+
+Las columnas son nullable **solo por legado**: la API las exige al crear, pero las filas
+anteriores a la migracion no las tienen. Esa es tambien la razon de que sean `Optional` en
+la entidad y en el response.
+
+`ReclamoRepository.update()` copia los campos uno por uno, asi que una columna nueva se
+pierde en las actualizaciones si no se agrega tambien ahi. Queda anotado en el propio
+metodo y en `AGENTS.md`.
+
+### 17.2 Migracion y backfill
+
+```bash
+python -m scripts.migrar_esquema
+```
+
+`agregar_columna_si_falta(...)` suma las dos columnas, y `completar_desde_usuarios()` las
+backfillea **solo donde sean NULL**, lo que la hace idempotente y no pisa lo capturado
+despues.
+
+El mapeo no es simetrico a proposito: la cuenta sale de `usuarios.nombre`, no de
+`usuarios.nombre_cuenta`. Una primera version asumia nombres de columna iguales en ambas
+tablas y reventaba con `no such column: usuarios.nombre_cuenta`; se detecto corriendo la
+migracion contra un esquema viejo simulado, no en los tests, que corren sobre SQLite
+creado desde el ORM y por eso nunca ven el problema.
+
+Verificado sobre `localhost:5433/sistema-reclamos`: 13/13 filas backfilled, 0 NULLs, y una
+segunda corrida sin cambios. Este paso es obligatorio: `Base.metadata.create_all()` no
+altera tablas existentes, asi que sin el, el ORM pide columnas que la base no tiene y
+`GET /dashboard/` responde 500 con `UndefinedColumn`.
+
+### 17.3 Una atencion tecnica no culmina sin avances
+
+`estado_orden: "resuelta"` y `PUT /reclamos/{id}/resolver` responden **409** si la orden no
+tiene avances registrados. La validacion vive en Application, no en las rutas.
+
+- `ActualizarOrdenUseCase` recibe `avance_repo` y valida **antes de mutar**, asi que un
+  rechazo deja la orden en su estado anterior en lugar de dejarla a medias.
+- `ResolverReclamoUseCase` recibe `orden_repo` y `avance_repo`, y aplica el mismo criterio.
+- Ambos comparten la constante `SIN_AVANCES` de `gestionar_orden.py`.
+- `app/Presentation/dependencies/__init__.py` refleja las dos firmas nuevas.
+
+La regla distingue dos caminos a proposito: un reclamo **con** orden de trabajo no se
+resuelve sin avances, pero un reclamo **sin** orden si se puede resolver directamente,
+porque no hay avances que exigir. La validacion solo dispara cuando el payload pide
+`resuelta`, de modo que reasignar cuadrilla o fecha en una orden sin avances sigue
+permitido.
+
+### 17.4 Tests
+
+12 tests nuevos, todos en verde. `203 tests` en total (antes 191).
+
+| Archivo | Añadidos | Qué cubren |
+|---------|----------|------------|
+| `tests/test_reclamos.py` | 6 | 422 por falta de cada campo, cuenta de un tercero, normalizacion, contacto, comprobante, y que omitir los campos opcionales no los borre |
+| `tests/test_seguimiento.py` | 6 | Orden sin avances → 409, con avances → 200, otros campos sin avances → 200, resolver con y sin orden |
+| `tests/conftest.py` | — | Fixture `reclamo_creado` con los campos obligatorios |
+| `tests/test_permisos.py` | — | Payloads de la matriz de permisos con los campos obligatorios |
+
+`test_crear_avance_orden_resuelta_retorna_409` cambio de estrategia: resolvia una orden sin
+avances y luego registraba uno esperando 409. Con la invariante nueva, la resolucion previa
+falla con 409 y el avance tardio se crea con 201, asi que el test hacia lo contrario de lo
+que queria verificar. Ahora registra el avance antes de resolver y sigue comprobando que un
+avance sobre una orden resuelta da 409.
+
+Los tests de `resolver` tuvieran que agregar `clasificar` antes de `asignar-plazo`: sin esa
+transicion el reclamo queda en `registrado` y `ResolverReclamoUseCase` responde 409 por otro
+motivo, el que ya bloquea desde `registrado`.
+
+### 17.5 Los 2 fallos preexistentes
+
+`pytest` deja `2 failed, 201 passed`. Ninguno lo causan estos cambios:
+
+- **`test_matriz_de_permisos[asignar_plazo-tecnico]`** — `PUT /reclamos/{id}/asignar-plazo`
+  esta gateado con `require_roles(*INTERNO)`, que incluye `tecnico`, pero la matriz
+  pretendida en el docstring del propio test dice `GESTION`. El tecnico atraviesa el gate y
+  recibe 404 en vez de 403. Es una **sub-restriccion real**, no un test mal escrito.
+- **`test_tecnico_no_puede_cerrar_reclamos`** — resuelve un reclamo recien creado sin
+  clasificarlo, y `resolver_reclamo.py` bloquea desde `registrado` con 409. La causa es la
+  invariante de clasificacion, no la de avances: el test no crea orden, asi que la regla
+  nueva no interviene.
+
+### 17.6 Documentacion
+
+- `docs/API.md` — los dos campos en los cuerpos de `POST` y `PUT`, tabla de a que entidad
+  escribe cada campo del endpoint de contacto, y la regla de avances documentada en los
+  tres puntos donde aplica (transiciones, orden y resolver).
+- `docs/ARQUITECTURA.md` — columnas en el DER, seccion de la invariante y seccion de por que
+  `nombre_cuenta` y `direccion` viven en el reclamo.
+- `AGENTS.md` y `../AGENTS.md` — la allowlist de `migrar_esquema.py` ya no tiene una sola
+  entrada, y se anotan el copy explicito del repositorio, la invariante de avances y la
+  semantica de los campos.
+
+---
+
+## 18. Medidores
 
 Nueva entidad del dominio, con repositorio, casos de uso, rutas y permisos. Cada cuenta
 tiene **exactamente un medidor de agua y uno de luz**.
@@ -513,7 +637,7 @@ reclamo y tiene que estar activo. Se invoca desde `CrearReclamoUseCase`,
 
 ---
 
-## 18. Codigo de medidor generado por el sistema
+## 19. Codigo de medidor generado por el sistema
 
 ### `generar_numero_medidor(servicio)`
 
@@ -575,7 +699,7 @@ cargado a mano. Imprime el antes y el despues de cada cambio.
 
 ---
 
-## 19. Verificacion de esta tanda
+## 20. Verificacion de esta tanda
 
 | Check | Resultado |
 |---|---|
@@ -599,7 +723,7 @@ cargado a mano. Imprime el antes y el despues de cada cambio.
 
 ---
 
-## 20. Pendientes conocidos
+## 21. Pendientes conocidos
 
 - **No hay pantalla de registro publico en el frontend.** `POST /auth/register` existe y
   `AuthContext.registro` esta implementado, pero ninguna pagina lo invoca.

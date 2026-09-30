@@ -32,6 +32,8 @@ class ReclamoRepository(ReclamoRepositoryABC):
             fecha_tope=orm.fecha_tope,
             fecha_cierre=orm.fecha_cierre,
             resultado=orm.resultado,
+            nombre_cuenta=orm.nombre_cuenta,
+            direccion=orm.direccion,
             usuario=orm.usuario,
             normativa=orm.normativa,
             medidor=orm.medidor,
@@ -141,6 +143,10 @@ class ReclamoRepository(ReclamoRepositoryABC):
         orm.fecha_tope = entity.fecha_tope
         orm.fecha_cierre = entity.fecha_cierre
         orm.resultado = entity.resultado
+        # Ojo: esta copia es campo por campo. Un campo nuevo en la entidad que
+        # no se agregue aqui se pierde en la BD sin error.
+        orm.nombre_cuenta = entity.nombre_cuenta
+        orm.direccion = entity.direccion
         self.db.commit()
         self.db.refresh(orm)
         return self._to_entity(orm)

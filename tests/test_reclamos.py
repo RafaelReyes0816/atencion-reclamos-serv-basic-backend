@@ -12,6 +12,8 @@ def test_crear_reclamo_datos_validos_retorna_201(
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga en tuberia principal",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 201
@@ -37,6 +39,8 @@ def test_crear_reclamo_luz_devuelve_numero_del_medidor(
             "categoria": "corte",
             "urgencia": "alta",
             "descripcion": "Sin energia electrica en la casa",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 201
@@ -54,6 +58,8 @@ def test_crear_reclamo_sin_id_medidor_retorna_422(client, auth_headers, usuario_
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga en tuberia sin medidor",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 422
@@ -73,6 +79,8 @@ def test_crear_reclamo_id_medidor_inexistente_retorna_404(
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga con medidor inexistente",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 404
@@ -96,6 +104,8 @@ def test_crear_reclamo_medidor_de_otro_usuario_retorna_403(
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga sobre medidor ajeno",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 403
@@ -116,6 +126,8 @@ def test_crear_reclamo_medidor_de_otro_servicio_retorna_422(
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga con medidor de luz",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 422
@@ -201,6 +213,8 @@ def test_crear_reclamo_canal_invalido_retorna_422(
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga en tuberia",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 422
@@ -220,6 +234,8 @@ def test_crear_reclamo_servicio_invalido_retorna_422(
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga en tuberia",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 422
@@ -239,6 +255,8 @@ def test_crear_reclamo_urgencia_invalida_retorna_422(
             "categoria": "fuga",
             "urgencia": "nuclear",
             "descripcion": "Fuga en tuberia",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 422
@@ -256,6 +274,8 @@ def test_crear_reclamo_usuario_inexistente_retorna_404(client, auth_headers, id_
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga en tuberia",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 404
@@ -275,6 +295,8 @@ def test_crear_reclamo_descripcion_corta_retorna_422(
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "x",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     assert response.status_code == 422
@@ -473,6 +495,8 @@ def test_filtrar_reclamos_por_servicio(
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Reclamo de agua",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     client.post(
@@ -486,6 +510,8 @@ def test_filtrar_reclamos_por_servicio(
             "categoria": "corte",
             "urgencia": "alta",
             "descripcion": "Reclamo de luz",
+            "nombre_cuenta": "Maria Lopez",
+            "direccion": "Calle 45 # 12-30",
         },
     )
     response = client.get("/reclamos/?servicio=luz", headers=auth_headers)
@@ -519,3 +545,107 @@ def test_eliminar_reclamo(client, auth_headers, reclamo_creado):
 
 def test_eliminar_reclamo_inexistente_retorna_404(client, auth_headers):
     assert client.delete("/reclamos/9999", headers=auth_headers).status_code == 404
+
+
+# --- identificacion de la cuenta -------------------------------------------------
+
+def test_crear_reclamo_sin_nombre_cuenta_retorna_422(
+    client, auth_headers, usuario_id, id_medidor_agua
+):
+    response = client.post(
+        "/reclamos/",
+        headers=auth_headers,
+        json={
+            "id_usuario": usuario_id,
+            "canal": "web",
+            "servicio": "agua",
+            "id_medidor": id_medidor_agua,
+            "categoria": "fuga",
+            "urgencia": "alta",
+            "descripcion": "Fuga en tuberia principal",
+            "direccion": "Calle 45 # 12-30",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_crear_reclamo_sin_direccion_retorna_422(
+    client, auth_headers, usuario_id, id_medidor_agua
+):
+    response = client.post(
+        "/reclamos/",
+        headers=auth_headers,
+        json={
+            "id_usuario": usuario_id,
+            "canal": "web",
+            "servicio": "agua",
+            "id_medidor": id_medidor_agua,
+            "categoria": "fuga",
+            "urgencia": "alta",
+            "descripcion": "Fuga en tuberia principal",
+            "nombre_cuenta": "Maria Lopez",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_crear_reclamo_persiste_cuenta_y_direccion(
+    client, auth_headers, usuario_id, id_medidor_agua
+):
+    """La cuenta puede ser de un tercero distinto del Usuario del reclamo."""
+    response = client.post(
+        "/reclamos/",
+        headers=auth_headers,
+        json={
+            "id_usuario": usuario_id,
+            "canal": "web",
+            "servicio": "agua",
+            "id_medidor": id_medidor_agua,
+            "categoria": "fuga",
+            "urgencia": "alta",
+            "descripcion": "Fuga en tuberia principal",
+            "nombre_cuenta": "  Inmobiliaria Torres  ",
+            "direccion": "  Calle 45 # 12-30  ",
+        },
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["nombre_cuenta"] == "Inmobiliaria Torres"
+    assert body["direccion"] == "Calle 45 # 12-30"
+
+
+def test_actualizar_contacto_actualiza_cuenta_y_direccion_del_reclamo(client, auth_headers, reclamo_creado):
+    response = client.put(
+        f"/reclamos/{reclamo_creado['id_reclamo']}/contacto",
+        headers=auth_headers,
+        json={
+            "telefono": "3001112233",
+            "email": "ciudadano@correo.co",
+            "nombre_cuenta": "Pedro Ramirez",
+            "direccion": "Carrera 7 # 88-20",
+        },
+    )
+    assert response.status_code == 200
+    persistido = client.get(f"/reclamos/{reclamo_creado['id_reclamo']}", headers=auth_headers).json()
+    assert persistido["nombre_cuenta"] == "Pedro Ramirez"
+    assert persistido["direccion"] == "Carrera 7 # 88-20"
+
+
+def test_actualizar_contacto_sin_cuenta_conserva_valores(client, auth_headers, reclamo_creado):
+    """Omitir los campos opcionales no debe borrarlos."""
+    client.put(
+        f"/reclamos/{reclamo_creado['id_reclamo']}/contacto",
+        headers=auth_headers,
+        json={"telefono": "3001112233", "email": None},
+    )
+    persistido = client.get(f"/reclamos/{reclamo_creado['id_reclamo']}", headers=auth_headers).json()
+    assert persistido["nombre_cuenta"] == reclamo_creado["nombre_cuenta"]
+    assert persistido["direccion"] == reclamo_creado["direccion"]
+
+
+def test_comprobante_incluye_cuenta_y_direccion(client, auth_headers, reclamo_creado):
+    response = client.get(f"/reclamos/{reclamo_creado['id_reclamo']}/comprobante", headers=auth_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["nombre_cuenta"] == reclamo_creado["nombre_cuenta"]
+    assert body["direccion"] == reclamo_creado["direccion"]

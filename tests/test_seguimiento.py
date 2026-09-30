@@ -57,6 +57,12 @@ def test_crear_avance_orden_resuelta_retorna_409(client, auth_headers, reclamo_c
         headers=auth_headers,
         json={"id_reclamo": reclamo_creado["id_reclamo"], "cuadrilla": "Cuadrilla Alpha", "fecha_asignacion": "2026-09-26"},
     ).json()
+    # Sin avances la orden no se puede resolver, asi que primero se registra uno.
+    client.post(
+        "/seguimiento/avances",
+        headers=auth_headers,
+        json={"id_orden": orden["id_orden"], "fecha_avance": "2026-09-26", "descripcion": "Se localizo la fuga", "estado_parcial": "iniciado"},
+    )
     client.put(f"/seguimiento/ordenes/{orden['id_orden']}", headers=auth_headers, json={"estado_orden": "resuelta"})
 
     response = client.post(
@@ -168,3 +174,106 @@ def test_eliminar_reclamo_con_orden_y_avances_en_cascada(client, auth_headers, r
     assert response.status_code == 200
     assert client.get(f"/reclamos/{reclamo_creado['id_reclamo']}", headers=auth_headers).status_code == 404
     assert client.get(f"/seguimiento/ordenes/{orden['id_orden']}", headers=auth_headers).status_code == 404
+
+
+# --- una atencion tecnica no culmina sin avances --------------------------------
+
+def _crear_orden(client, headers, reclamo_creado):
+    return client.post(
+        "/seguimiento/ordenes",
+        headers=headers,
+        json={"id_reclamo": reclamo_creado["id_reclamo"], "cuadrilla": "Cuadrilla Alpha", "fecha_asignacion": "2026-09-26"},
+    ).json()
+
+
+def _registrar_avance(client, headers, id_orden):
+    return client.post(
+        "/seguimiento/avances",
+        headers=headers,
+        json={"id_orden": id_orden, "fecha_avance": "2026-09-26", "descripcion": "Trabajo ejecutado en sitio", "estado_parcial": "verificado"},
+    )
+
+
+def _clasificar(client, headers, reclamo_creado):
+    return client.put(
+        f"/reclamos/{reclamo_creado['id_reclamo']}/clasificar",
+        headers=headers,
+        json={"servicio": "agua", "categoria": "fuga", "urgencia": "alta"},
+    )
+
+
+def _asignar_plazo(client, headers, reclamo_creado):
+    normativa = client.post(
+        "/normativa/",
+        headers=headers,
+        json={"servicio": "agua", "categoria": "fuga", "urgencia": "alta", "plazo_maximo_dias": 7, "vigencia_desde": "2026-01-01"},
+    ).json()
+    return client.put(
+        f"/reclamos/{reclamo_creado['id_reclamo']}/asignar-plazo",
+        headers=headers,
+        json={"id_normativa": normativa["id_normativa"], "fecha_tope": "2026-10-15"},
+    )
+
+
+def test_actualizar_orden_a_resuelta_sin_avances_retorna_409(client, auth_headers, reclamo_creado):
+    orden = _crear_orden(client, auth_headers, reclamo_creado)
+    response = client.put(
+        f"/seguimiento/ordenes/{orden['id_orden']}", headers=auth_headers, json={"estado_orden": "resuelta"}
+    )
+    assert response.status_code == 409
+    # La orden no debe haberse movido de estado.
+    actual = client.get(f"/seguimiento/ordenes/{orden['id_orden']}", headers=auth_headers).json()
+    assert actual["estado_orden"] == "asignada"
+
+
+def test_actualizar_orden_a_resuelta_con_avances_retorna_200(client, auth_headers, reclamo_creado):
+    orden = _crear_orden(client, auth_headers, reclamo_creado)
+    assert _registrar_avance(client, auth_headers, orden["id_orden"]).status_code == 201
+    response = client.put(
+        f"/seguimiento/ordenes/{orden['id_orden']}", headers=auth_headers, json={"estado_orden": "resuelta"}
+    )
+    assert response.status_code == 200
+    assert response.json()["estado_orden"] == "resuelta"
+
+
+def test_actualizar_orden_otros_campos_sin_avances_permitido(client, auth_headers, reclamo_creado):
+    """La regla solo bloquea culminar, no reasignar cuadrilla."""
+    orden = _crear_orden(client, auth_headers, reclamo_creado)
+    response = client.put(
+        f"/seguimiento/ordenes/{orden['id_orden']}", headers=auth_headers, json={"cuadrilla": "Cuadrilla Bravo"}
+    )
+    assert response.status_code == 200
+    assert response.json()["cuadrilla"] == "Cuadrilla Bravo"
+
+
+def test_resolver_reclamo_con_orden_sin_avances_retorna_409(client, auth_headers, reclamo_creado):
+    _crear_orden(client, auth_headers, reclamo_creado)
+    assert _clasificar(client, auth_headers, reclamo_creado).status_code == 200
+    assert _asignar_plazo(client, auth_headers, reclamo_creado).status_code == 200
+    response = client.put(
+        f"/reclamos/{reclamo_creado['id_reclamo']}/resolver", headers=auth_headers, json={"resultado": "resuelto"}
+    )
+    assert response.status_code == 409
+
+
+def test_resolver_reclamo_con_orden_con_avances_retorna_200(client, auth_headers, reclamo_creado):
+    orden = _crear_orden(client, auth_headers, reclamo_creado)
+    _registrar_avance(client, auth_headers, orden["id_orden"])
+    assert _clasificar(client, auth_headers, reclamo_creado).status_code == 200
+    assert _asignar_plazo(client, auth_headers, reclamo_creado).status_code == 200
+    response = client.put(
+        f"/reclamos/{reclamo_creado['id_reclamo']}/resolver", headers=auth_headers, json={"resultado": "resuelto"}
+    )
+    assert response.status_code == 200
+    assert response.json()["estado"] == "resuelto"
+
+
+def test_resolver_reclamo_sin_orden_sin_avances_retorna_200(client, auth_headers, reclamo_creado):
+    """Regresion: sin orden de trabajo no hay avances que exigir."""
+    assert _clasificar(client, auth_headers, reclamo_creado).status_code == 200
+    assert _asignar_plazo(client, auth_headers, reclamo_creado).status_code == 200
+    response = client.put(
+        f"/reclamos/{reclamo_creado['id_reclamo']}/resolver", headers=auth_headers, json={"resultado": "resuelto"}
+    )
+    assert response.status_code == 200
+    assert response.json()["estado"] == "resuelto"

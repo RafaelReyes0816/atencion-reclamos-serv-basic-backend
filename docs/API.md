@@ -45,9 +45,9 @@ cualquiera (no cerrado) ──scheduler vencidos──> escalado
 **Transiciones importantes:**
 - **Crear orden de trabajo** (`POST /seguimiento/ordenes`) cambia el reclamo a `en_atencion_tecnica`.
 - **Crear derivación comercial** (`POST /seguimiento/derivaciones`) cambia el reclamo a `en_atencion_comercial`.
-- **Marcar orden como resuelta** (`PUT /seguimiento/ordenes/{id}` con `estado_orden: "resuelta"`) cambia el reclamo a `resuelto`.
+- **Marcar orden como resuelta** (`PUT /seguimiento/ordenes/{id}` con `estado_orden: "resuelta"`) cambia el reclamo a `resuelto`. **Exige al menos un avance registrado en la orden** (`409` si no hay).
 - **Marcar derivación como resuelta** (`PUT /seguimiento/derivaciones/{id}` con `estado_derivacion: "resuelta"`) cambia el reclamo a `resuelto`.
-- **Resolver** (`PUT /reclamos/{id}/resolver`) requiere que el reclamo NO esté en `registrado` ni `cerrado`.
+- **Resolver** (`PUT /reclamos/{id}/resolver`) requiere que el reclamo NO esté en `registrado` ni `cerrado`. Si el reclamo tiene orden de trabajo, la orden debe tener avances registrados (`409` si no hay).
 - **Cerrar** (`PUT /reclamos/{id}/cerrar`) requiere que el reclamo esté en `resuelto`.
 
 ---
@@ -264,12 +264,23 @@ Crear nuevo reclamo. **Requiere auth.** `404` si `id_usuario` no existe. Un `ciu
   "id_medidor": 7,
   "categoria": "fuga",
   "urgencia": "alta",
-  "descripcion": "Fuga en tubería principal"
+  "descripcion": "Fuga en tubería principal",
+  "nombre_cuenta": "Inmobiliaria Torres",
+  "direccion": "Calle 45 # 12-30"
 }
 ```
 
-**Response:** `201` `ReclamoResponse` (con `estado: "registrado"` y `fecha_recepcion` asignados).
-`numero_medidor` llega en la respuesta, derivado del medidor asociado.
+| Campo | Regla |
+|-------|-------|
+| `nombre_cuenta` | **Requerido.** 3–120 caracteres. Titular de la cuenta donde ocurre el problema; puede ser un tercero distinto del `Usuario` del reclamo. |
+| `direccion` | **Requerido.** 5–255 caracteres. Dirección donde se presenta la falla. |
+| `id_medidor` | **Requerido.** Medidor del cliente donde ocurre el problema. Debe pertenecerle, estar `activo` y su `servicio` tiene que coincidir con el del reclamo. |
+
+`nombre_cuenta` y `direccion` se guardan en el reclamo, no en el usuario. Un `ciudadano`
+puede tener un titular distinto de la cuenta; lo que sí se fuerza es `id_usuario`.
+
+**Response:** `201` `ReclamoResponse` (con `estado: "registrado"` y `fecha_recepcion`
+asignados). `numero_medidor` llega derivado del medidor asociado.
 
 ### GET `/reclamos/estado/{id_o_doc}`
 Consultar estado. **Público — sin auth.** (tracking del ciudadano)
@@ -303,6 +314,8 @@ Si se envía `id_medidor` o `servicio`, se validan juntos contra el cliente: el 
   "categoria": "fuga",
   "urgencia": "alta",
   "descripcion": "Descripción actualizada",
+  "nombre_cuenta": "Pedro Ramírez",
+  "direccion": "Carrera 7 # 88-20",
   "id_normativa": 1,
   "fecha_tope": "2026-10-15",
   "resultado": "resuelto"
@@ -336,6 +349,11 @@ Asignar plazo regulatorio. **Requiere rol interno.** `404` si la normativa no ex
 ### PUT `/reclamos/{id}/resolver`
 Resolver reclamo. **Requiere rol interno.** `409` si está `cerrado` o `registrado`.
 
+Además, **si el reclamo tiene orden de trabajo, esta debe tener al menos un avance
+registrado** — de lo contrario `409` con el mensaje *"La orden de trabajo no tiene avances
+registrados; regístralos antes de resolver"*. Un reclamo **sin** orden se puede resolver
+directamente: no hay avances que exigir.
+
 **Request Body:**
 ```json
 { "resultado": "resuelto", "detalle": "Reparado" }
@@ -364,10 +382,12 @@ Obtener comprobante. **Requiere auth.** Un `ciudadano` solo obtiene los de sus p
   "fecha_recepcion": "2026-09-26",
   "canal": "web",
   "servicio": "agua",
-  "numero_medidor": "AG-5813307",
+  "numero_medidor": "AG-UTG0MP25",
   "categoria": "fuga",
   "descripcion": "Fuga en tubería principal",
-  "fecha_tope": "2026-10-10"
+  "fecha_tope": "2026-10-10",
+  "nombre_cuenta": "Inmobiliaria Torres",
+  "direccion": "Calle 45 # 12-30"
 }
 ```
 
@@ -375,9 +395,24 @@ Obtener comprobante. **Requiere auth.** Un `ciudadano` solo obtiene los de sus p
 Actualizar datos de contacto del reclamante. **Requiere auth.** Un `ciudadano` solo puede
 actualizar el contacto de sus propios reclamos.
 
+Actualiza dos entidades distintas según el campo:
+
+| Campo | Entidad que se escribe |
+|-------|------------------------|
+| `telefono`, `email` | `usuarios` (el reclamante) |
+| `nombre_cuenta`, `direccion` | `reclamos` (la cuenta del servicio) |
+
+`telefono` es requerido; `email`, `nombre_cuenta` y `direccion` son opcionales y, si se
+omiten, conservan su valor actual.
+
 **Request Body:**
 ```json
-{ "telefono": "555-0100", "email": "nuevo@correo.com" }
+{
+  "telefono": "555-0100",
+  "email": "nuevo@correo.com",
+  "nombre_cuenta": "Pedro Ramírez",
+  "direccion": "Carrera 7 # 88-20"
+}
 ```
 
 **Response:** `200`
@@ -415,8 +450,8 @@ cuenta: un `ciudadano` recibe `403`.
 **Response:** `200` `List[MedidorResponse]`
 ```json
 [
-  { "id_medidor": 7, "id_usuario": 1, "servicio": "agua",  "numero": "AG-5813307",  "direccion": null, "activo": true },
-  { "id_medidor": 8, "id_usuario": 1, "servicio": "luz",   "numero": "LUZ-5813307", "direccion": null, "activo": true }
+  { "id_medidor": 7, "id_usuario": 1, "servicio": "agua",  "numero": "AG-UTG0MP25",  "direccion": null, "activo": true },
+  { "id_medidor": 8, "id_usuario": 1, "servicio": "luz",   "numero": "LUZ-7CCWNF0A", "direccion": null, "activo": true }
 ]
 ```
 
@@ -624,6 +659,10 @@ Crear orden. **Requiere rol interno.** `404` si el reclamo no existe, `409` si y
 Actualizar orden. **Requiere rol interno.** Solo los campos enviados.
 `estado_orden`: `asignada` | `en_curso` | `resuelta`
 **Si se cambia a `resuelta`, el reclamo asociado pasa a `resuelto`.**
+
+**`409` si se solicita `resuelta` y la orden no tiene avances registrados.** La regla solo
+aplica a culminar: reasignar cuadrilla o fecha en una orden sin avances sí se permite.
+Mensaje: *"La orden de trabajo no tiene avances registrados; regístralos antes de resolver"*.
 
 **Request Body:**
 ```json
@@ -845,7 +884,7 @@ Un valor fuera de estos catálogos se rechaza con `422`.
   "canal": "web",
   "servicio": "agua",
   "id_medidor": 7,
-  "numero_medidor": "AG-5813307",
+  "numero_medidor": "AG-UTG0MP25",
   "categoria": "fuga",
   "urgencia": "alta",
   "descripcion": "Fuga en tubería",
@@ -863,7 +902,7 @@ Un valor fuera de estos catálogos se rechaza con `422`.
   "id_medidor": 7,
   "id_usuario": 1,
   "servicio": "agua",
-  "numero": "AG-5813307",
+  "numero": "AG-UTG0MP25",
   "direccion": null,
   "activo": true
 }

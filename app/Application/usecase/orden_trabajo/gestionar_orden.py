@@ -1,7 +1,13 @@
 from typing import List
 from app.Domain.Repositories.orden_trabajo_repository import OrdenTrabajoRepositoryABC
+from app.Domain.Repositories.reclamo_repository import ReclamoRepositoryABC
+from app.Domain.Repositories.avance_repository import AvanceRepositoryABC
 from app.Domain.Entities.orden_trabajo import OrdenTrabajo
+from app.Domain.Entities.catalogos import EstadoOrden
 from app.Domain.Exceptions import NoEncontradoError, ConflictoError
+
+# Invariante compartida: una atencion tecnica no se culmina sin avances.
+SIN_AVANCES = "La orden de trabajo no tiene avances registrados; regístralos antes de resolver"
 
 
 class ListarOrdenesUseCase:
@@ -48,21 +54,33 @@ class CrearOrdenUseCase:
 
 
 class ActualizarOrdenUseCase:
-    def __init__(self, repository: OrdenTrabajoRepositoryABC, reclamo_repo=None):
+    def __init__(
+        self,
+        repository: OrdenTrabajoRepositoryABC,
+        reclamo_repo: ReclamoRepositoryABC,
+        avance_repo: AvanceRepositoryABC,
+    ):
         self.repository = repository
         self.reclamo_repo = reclamo_repo
+        self.avance_repo = avance_repo
 
     def execute(self, id: int, cambios: dict) -> OrdenTrabajo:
         orden = self.repository.get_by_id(id)
         if orden is None:
             raise NoEncontradoError("Orden no encontrada")
+        # Una orden no se resuelve sin al menos un avance que lo respalde. Se
+        # valida antes de mutar para no dejar cambios a medias.
+        if cambios.get("estado_orden") == EstadoOrden.resuelta.value and not (
+            self.avance_repo.get_by_orden(id)
+        ):
+            raise ConflictoError(SIN_AVANCES)
         for campo, valor in cambios.items():
             if valor is not None and hasattr(orden, campo):
                 setattr(orden, campo, valor)
         resultado = self.repository.update(orden)
         if (
             self.reclamo_repo
-            and cambios.get("estado_orden") == "resuelta"
+            and cambios.get("estado_orden") == EstadoOrden.resuelta.value
             and orden.id_reclamo
         ):
             self.reclamo_repo.update_estado(orden.id_reclamo, "resuelto")

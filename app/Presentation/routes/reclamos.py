@@ -141,7 +141,13 @@ def actualizar_contacto(
 ):
     reclamo = servicio["obtener_reclamo"].execute(id)
     _verificar_lectura(current_user, reclamo)
-    servicio["actualizar_contacto"].execute(id, contacto.telefono, contacto.email)
+    servicio["actualizar_contacto"].execute(
+        id,
+        contacto.telefono,
+        contacto.email,
+        contacto.nombre_cuenta,
+        contacto.direccion,
+    )
     return {"message": "Contacto actualizado", "status": "success"}
 
 

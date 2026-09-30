@@ -19,6 +19,9 @@ class Reclamo:
     fecha_tope: Optional[date] = None
     fecha_cierre: Optional[date] = None
     resultado: Optional[str] = None
+    # Identifican la cuenta del servicio, no a la persona que reclama.
+    nombre_cuenta: Optional[str] = None
+    direccion: Optional[str] = None
     # Derivado del medidor seleccionado, no se persiste en la tabla.
     numero_medidor: Optional[str] = None
     usuario: Optional[object] = field(default=None)
