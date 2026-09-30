@@ -5,6 +5,10 @@
     POST   /usuarios/                              -         -         -          A
     GET    /usuarios/{otro}                     propio       G         G          A
     DELETE /usuarios/{id}                          -         -         -          A
+    GET    /medidores/                           propio     propio    propio      propio
+    PUT    /medidores/{suyo}                     propio     propio    propio      propio
+    GET    /medidores/ciudadanos                    -         L         L          A
+    POST   /medidores/                              -         -         -          A
     GET    /normativa/                             -         L         L          A
     POST   /normativa/                             -         -         G          A
     GET    /cuadrillas/                            -         L         L          A
@@ -36,6 +40,17 @@ MATRIZ = [
         "contraseña": "clave123", "email": "nuevo@correo.com", "direccion": "Calle 1",
     }, 201, ("admin",)),
     ("eliminar_usuario", "DELETE", "/usuarios/9999", None, 404, ("admin",)),
+
+    ("listar_medidores_propios", "GET", "/medidores/", None, 200, TODOS),
+    ("editar_medidor_propio", "PUT", "/medidores/9999", {
+        "numero": "AG-123456",
+    }, 404, TODOS),
+    ("listar_medidores_de_ciudadanos", "GET", "/medidores/ciudadanos", None, 200,
+     ("tecnico", "supervisor", "admin")),
+    ("crear_medidor", "POST", "/medidores/", {
+        "id_usuario": 9999, "servicio": "agua", "numero": "AG-999888",
+    }, 404, ("admin",)),
+    ("eliminar_medidor", "DELETE", "/medidores/9999", None, 404, ("admin",)),
 
     ("listar_normativa", "GET", "/normativa/", None, 200, ("tecnico", "supervisor", "admin")),
     ("crear_normativa", "POST", "/normativa/", {
@@ -70,7 +85,7 @@ MATRIZ = [
     }, 404, ("tecnico", "supervisor", "admin")),
     ("asignar_plazo", "PUT", "/reclamos/9999/asignar-plazo", {
         "id_normativa": 1, "fecha_tope": "2026-12-31",
-    }, 404, ("supervisor", "admin")),
+    }, 404, ("tecnico", "supervisor", "admin")),
     ("cerrar_reclamo", "PUT", "/reclamos/9999/cerrar", {"resultado": "resuelto"}, 404, ("supervisor", "admin")),
     ("eliminar_reclamo", "DELETE", "/reclamos/9999", None, 404, ("admin",)),
 ]
@@ -98,49 +113,67 @@ def test_matriz_de_permisos(client, tokens_por_rol, rol, nombre, metodo, ruta, b
             f"{rol} en {nombre}: {response.status_code} {response.text[:200]}"
         )
 
-
 # --- alcance sobre los propios datos -----------------------------------------
 
-def test_ciudadano_crea_reclamo_propio(client, headers_ciudadano, usuario_ciudadano):
+
+def _agua(db_session, usuario):
+    from conftest import _id_medidor
+
+    return _id_medidor(db_session, usuario, "agua")
+
+
+def _luz(db_session, usuario):
+    from conftest import _id_medidor
+
+    return _id_medidor(db_session, usuario, "luz")
+
+
+def test_ciudadano_crea_reclamo_propio(client, headers_ciudadano, usuario_ciudadano, db_session):
     response = client.post("/reclamos/", headers=headers_ciudadano, json={
         "id_usuario": usuario_ciudadano.id_usuario, "canal": "web", "servicio": "agua",
+        "id_medidor": _agua(db_session, usuario_ciudadano),
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Fuga en mi casa",
     })
     assert response.status_code == 201
 
 
-def test_ciudadano_no_crea_reclamo_para_otro(client, headers_ciudadano, usuario_admin):
+def test_ciudadano_no_crea_reclamo_para_otro(client, headers_ciudadano, usuario_admin, db_session):
     response = client.post("/reclamos/", headers=headers_ciudadano, json={
         "id_usuario": usuario_admin.id_usuario, "canal": "web", "servicio": "agua",
+        "id_medidor": _agua(db_session, usuario_admin),
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Fuga ajena",
     })
     assert response.status_code == 403
 
 
-def test_supervisor_registra_reclamo_por_ventanilla(client, headers_supervisor, usuario_ciudadano):
+def test_supervisor_registra_reclamo_por_ventanilla(client, headers_supervisor, usuario_ciudadano, db_session):
     response = client.post("/reclamos/", headers=headers_supervisor, json={
         "id_usuario": usuario_ciudadano.id_usuario, "canal": "web", "servicio": "agua",
+        "id_medidor": _agua(db_session, usuario_ciudadano),
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Reclamo por ventanilla",
     })
     assert response.status_code == 201
 
 
-def test_ciudadano_no_ve_reclamo_ajeno(client, headers_ciudadano, headers_admin, usuario_admin):
+def test_ciudadano_no_ve_reclamo_ajeno(client, headers_ciudadano, headers_admin, usuario_admin, db_session):
     ajeno = client.post("/reclamos/", headers=headers_admin, json={
         "id_usuario": usuario_admin.id_usuario, "canal": "web", "servicio": "luz",
+        "id_medidor": _luz(db_session, usuario_admin),
         "categoria": "corte", "urgencia": "alta", "descripcion": "Corte en la calle",
     })
     assert ajeno.status_code == 201
     assert client.get(f"/reclamos/{ajeno.json()['id_reclamo']}", headers=headers_ciudadano).status_code == 403
 
 
-def test_lista_reclamos_de_ciudadano_filtrada(client, headers_ciudadano, headers_admin, usuario_ciudadano, usuario_admin):
+def test_lista_reclamos_de_ciudadano_filtrada(client, headers_ciudadano, headers_admin, usuario_ciudadano, usuario_admin, db_session):
     client.post("/reclamos/", headers=headers_ciudadano, json={
         "id_usuario": usuario_ciudadano.id_usuario, "canal": "web", "servicio": "agua",
+        "id_medidor": _agua(db_session, usuario_ciudadano),
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Fuga propia del ciudadano",
     })
     client.post("/reclamos/", headers=headers_admin, json={
         "id_usuario": usuario_admin.id_usuario, "canal": "web", "servicio": "luz",
+        "id_medidor": _luz(db_session, usuario_admin),
         "categoria": "corte", "urgencia": "alta", "descripcion": "Corte ajeno del admin",
     })
     response = client.get("/reclamos/", headers=headers_ciudadano)
@@ -150,13 +183,15 @@ def test_lista_reclamos_de_ciudadano_filtrada(client, headers_ciudadano, headers
     assert cuerpo[0]["id_usuario"] == usuario_ciudadano.id_usuario
 
 
-def test_lista_reclamos_interno_ve_todos(client, headers_tecnico, headers_ciudadano, headers_admin, usuario_ciudadano, usuario_admin):
+def test_lista_reclamos_interno_ve_todos(client, headers_tecnico, headers_ciudadano, headers_admin, usuario_ciudadano, usuario_admin, db_session):
     client.post("/reclamos/", headers=headers_ciudadano, json={
         "id_usuario": usuario_ciudadano.id_usuario, "canal": "web", "servicio": "agua",
+        "id_medidor": _agua(db_session, usuario_ciudadano),
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Fuga del ciudadano",
     })
     client.post("/reclamos/", headers=headers_admin, json={
         "id_usuario": usuario_admin.id_usuario, "canal": "web", "servicio": "luz",
+        "id_medidor": _luz(db_session, usuario_admin),
         "categoria": "corte", "urgencia": "alta", "descripcion": "Corte del admin",
     })
     respuesta = client.get("/reclamos/", headers=headers_tecnico)
@@ -182,12 +217,20 @@ def test_ciudadano_no_puede_autopromoverse(client, headers_ciudadano, usuario_ci
     assert response.json()["rol"] == "ciudadano"
 
 
-def test_tecnico_no_puede_cerrar_reclamos(client, headers_tecnico, headers_admin, usuario_admin):
+def test_tecnico_no_puede_cerrar_reclamos(client, headers_tecnico, headers_admin, usuario_admin, db_session):
     reclamo = client.post("/reclamos/", headers=headers_admin, json={
         "id_usuario": usuario_admin.id_usuario, "canal": "web", "servicio": "agua",
+        "id_medidor": _agua(db_session, usuario_admin),
         "categoria": "fuga", "urgencia": "alta", "descripcion": "Reclamo para cerrar",
     }).json()
     id_reclamo = reclamo["id_reclamo"]
+    # Un reclamo en estado 'registrado' no se puede resolver: primero hay que clasificarlo.
+    clasificar = client.put(
+        f"/reclamos/{id_reclamo}/clasificar",
+        headers=headers_tecnico,
+        json={"servicio": "agua", "categoria": "fuga", "urgencia": "alta"},
+    )
+    assert clasificar.status_code == 200
     resolver = client.put(
         f"/reclamos/{id_reclamo}/resolver", headers=headers_tecnico, json={"resultado": "resuelto"}
     )

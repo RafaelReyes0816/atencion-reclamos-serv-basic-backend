@@ -438,3 +438,175 @@ from app.Presentation.api import app  # noqa: F401
 
 El entry point para uvicorn sigue siendo `app.main:app` (sin cambios en el comando
 de arranque). `conftest.py` tambien sigue importando de `app.main`.
+
+---
+
+## 17. Medidores
+
+Nueva entidad del dominio, con repositorio, casos de uso, rutas y permisos. Cada cuenta
+tiene **exactamente un medidor de agua y uno de luz**.
+
+### Archivos nuevos
+
+```
+app/Domain/Entities/medidor.py
+app/Domain/Repositories/medidor_repository.py
+app/Application/usecase/medidor/gestionar_medidor.py
+app/Application/usecase/reclamo/validar_medidor.py
+app/Infraestructura/database/models/medidor.py
+app/Infraestructura/repositories/medidor_repository.py
+app/Presentation/routes/medidores.py
+app/Presentation/schemas/medidor.py
+tests/test_medidores.py
+```
+
+### `app/Infraestructura/database/models/medidor.py` (nuevo)
+
+Dos restricciones de unicidad, cada una con una razon distinta:
+
+```python
+__table_args__ = (
+    UniqueConstraint("id_usuario", "servicio", name="uq_medidor_usuario_servicio"),
+    UniqueConstraint("numero", name="uq_medidor_numero"),
+)
+```
+
+La primera es la que permite que el ciudadano solo tenga que **seleccionar** su medidor y
+nunca escriba un numero. La segunda evita que dos suministros compartan codigo, que para
+la cuadrilla seria indistinguible.
+
+`reclamos.id_medidor` es nullable a proposito: los reclamos anteriores a esta tabla se
+conservan sin medidor en lugar de quedar invalidos.
+
+### `app/Application/usecase/medidor/gestionar_medidor.py` (nuevo)
+
+| Caso de uso | Que hace |
+|---|---|
+| `ListarMedidoresUseCase` | Filtra por `id_usuario` si se indica |
+| `ListarMedidoresDeCiudadanosUseCase` | Aplana ciudadano + medidores, para el rol interno |
+| `ObtenerMedidorUseCase` | Busca por `id_medidor` |
+| `CrearMedidorUseCase` | Valida que el usuario exista y que no haya otro del mismo servicio |
+| `ActualizarMedidorUseCase` | Actualiza el numero |
+| `EliminarMedidorUseCase` | Borra |
+| `AsignarMedidoresPorDefectoUseCase` | Da de alta el de agua y el de luz, idempotente |
+
+### `app/Application/usecase/reclamo/validar_medidor.py` (nuevo)
+
+`ValidarMedidorReclamoUseCase` es la unica fuente de las tres reglas que-compiten: el
+medidor tiene que pertenecer al cliente, su `servicio` tiene que coincidir con el del
+reclamo y tiene que estar activo. Se invoca desde `CrearReclamoUseCase`,
+`ActualizarReclamoUseCase` y `ClasificarReclamoUseCase`.
+
+> Al reclasificar un reclamo a otro servicio, el medidor queda **desasociado**
+> (`id_medidor = NULL`), no cambiado de medidor. Elegir el medidor correcto es una
+> decision del operador, no un efecto colateral de cambiar la categoria.
+
+### `app/Presentation/routes/medidores.py` (nuevo)
+
+| Endpoint | Permiso |
+|---|---|
+| `GET /medidores/` | Cualquier autenticado; `?id_usuario=` de otra cuenta da `403` al ciudadano |
+| `GET /medidores/ciudadanos` | `INTERNO` |
+| `POST /medidores/` | `ADMIN` |
+| `PUT /medidores/{id}` | El dueno o un rol interno |
+| `DELETE /medidores/{id}` | `ADMIN` |
+
+---
+
+## 18. Codigo de medidor generado por el sistema
+
+### `generar_numero_medidor(servicio)`
+
+El codigo se sortea con `secrets` y **no se deriva del documento**:
+
+```python
+CONFUSOS = set("OILSBZ")
+ALFABETO = "".join(c for c in string.ascii_uppercase + string.digits if c not in CONFUSOS)
+LARGO_SUFIJO = 8
+```
+
+El alfabeto excluye vocales y los digitos que se confunden al dictar por radio
+(`0/O`, `1/I/L`, `5/S`, `8/B`, `2/Z`). El resultado es `AG-XXXXXXXX` o `LUZ-XXXXXXXX`.
+
+`numero_medidor_aleatorio(servicio, medidor_repo)` envuelve al generador y reintenta
+hasta 20 veces consultando `get_by_numero`, para no depender solo de la restriccion de
+base de datos.
+
+**Por que no `AG-{documento}`:** la version provisional derivaba el codigo del documento,
+lo que hacia que un cliente pudiera deducir el numero de otro y decia que el medidor era
+"provisional". El codigo aleatorio no depende de ningun dato personal y es opaco.
+
+### `AsignarMedidoresPorDefectoUseCase.execute(id_usuario)`
+
+La firma ya **no recibe `documento`**. Se invoca desde `CrearUsuarioUseCase`, asi que
+tanto `POST /auth/register` (publico) como `POST /usuarios/` (admin) dan de alta los dos
+medidores por el mismo camino. Sigue siendo idempotente: si el cliente ya tiene el
+medidor de un servicio, no lo duplica.
+
+### `scripts/migrar_esquema.py` (modificado)
+
+Tres pasos nuevos, todos idempotentes:
+
+| Funcion | Que hace |
+|---|---|
+| `agregar_indice_unico_si_falta` | `ALTER TABLE ... ADD CONSTRAINT uq_medidor_numero UNIQUE (numero)` |
+| `completar_medidores_existentes` | Da de alta los medidores de las cuentas anteriores a la tabla |
+| `renumerar_medidores_placeholder` | Sustituye los `AG-{documento}` de la version anterior por codigos generados |
+
+> `create_all()` no puede agregar una restriccion a una tabla que ya existe, por eso el
+> indice unico necesita su propio `ALTER` en el script de migracion.
+
+`renumerar_medidores_placeholder` solo toca los medidores cuyo numero coincide
+exactamente con el formato viejo, asi que nunca pisa un numero que la empresa haya
+cargado a mano. Imprime el antes y el despues de cada cambio.
+
+### `scripts/seed.py` (modificado)
+
+- El seed crea los medidores de las cuatro cuentas demo y los reclamos referencian
+  `id_medidor` en vez de un numero de texto.
+- **Bug corregido:** `seed_medidores` guardaba en el diccionario solo los medidores
+  *nuevos* que devolvia el caso de uso. Al reejecutar el seed **sin** `--reset` sobre una
+  base ya sembrada, `por_cliente` quedaba vacio y los reclamos no encontraban su
+  medidor. Ahora lee de `repo.get_by_usuario(id_usuario)`, que devuelve lo que quedo en la
+  base, no solo lo creado en esa corrida.
+- **Bug corregido en `--reset`:** al borrar los usuarios demo, los reclamos de los
+  usuarios que no son demo quedaban apuntando a una norma que el script si eliminaba.
+  Ahora se les pone `id_normativa = NULL` antes de borrar las normativas.
+
+---
+
+## 19. Verificacion de esta tanda
+
+| Check | Resultado |
+|---|---|
+| `pytest` | **234 passed** (191 previos + 43 de medidores), salida 0, 208 s |
+| `python -m scripts.migrar_esquema` | 13 cambios la primera vez, "No hacia falta ningun cambio" la segunda |
+| Altas reales por HTTP | `POST /auth/register` devuelve los dos medidores (`AG-15HT395A`, `LUZ-MWXHPKV4`) |
+| Filtro por estado para ciudadano | 13 reclamos, particionados: 2 registrado, 3 clasificado, 2 en atencion tecnica, 3 cerrado |
+| Base de datos | 6 usuarios, 12 medidores, 0 medidores con servicio incorrecto |
+
+### Tests agregados en `tests/test_medidores.py`
+
+| Test | Que cubre |
+|---|---|
+| `test_registro_crea_medidor_de_agua_y_luz` | El alta publica da los dos medidores con codigo generado |
+| `test_codigos_de_medidor_no_se_repiten_entre_clientes` | 4 clientes x 2 medidores = 8 codigos distintos |
+| `test_numero_aleatorio_no_deriva_del_documento` | 50 codigos casi todos distintos y con el formato esperado |
+
+> Los medidores que crea `conftest.py` van con numero fijo a proposito: es una base
+> comparable para los tests de reclamos, que comparan contra `AG-10000001`. En produccion
+> el numero es aleatorio.
+
+---
+
+## 20. Pendientes conocidos
+
+- **No hay pantalla de registro publico en el frontend.** `POST /auth/register` existe y
+  `AuthContext.registro` esta implementado, pero ninguna pagina lo invoca.
+- **`Plantilla-FastAPI.md` sigue sin trackear** en la raiz, mientras `AGENTS.md` y
+  `PLAN.md` lo referencian como `docs/Plantilla-FastAPI.md`. Hay que decidir si se mueve
+  a `docs/` o se corrige la referencia. No se incluyo en el commit por no ser parte de
+  estos cambios.
+- **Los 24 warnings de oxlint del frontend** son `react(set-state-in-effect)`:
+  algunos `useEffect` llaman `setState` de forma sincrona. No son errores, pero un
+  refactor a derivar estado durante el render los eliminaria.

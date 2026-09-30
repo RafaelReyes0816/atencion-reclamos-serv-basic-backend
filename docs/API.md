@@ -83,6 +83,10 @@ Cada usuario tiene un `rol`. El registro público (`/auth/register`) **siempre**
 | `PUT /reclamos/{id}/resolver` | | ✅ | ✅ | ✅ |
 | `PUT /reclamos/{id}/cerrar` | | | ✅ | ✅ |
 | `DELETE /reclamos/{id}` | | | | ✅ |
+| `GET /medidores/` | solo los suyos | ✅ | ✅ | ✅ |
+| `PUT /medidores/{id}` | solo los suyos | ✅ | ✅ | ✅ |
+| `GET /medidores/ciudadanos` | | ✅ | ✅ | ✅ |
+| `POST /medidores/` `DELETE /medidores/{id}` | | | | ✅ |
 | `GET /normativa/` `GET /cuadrillas/` `GET /areas-comerciales/` | | ✅ | ✅ | ✅ |
 | `POST/PUT/DELETE` de normativa, cuadrillas y áreas | | | ✅ | ✅ |
 | `GET/POST/PUT` de seguimiento (órdenes, avances, derivaciones) | | ✅ | ✅ | ✅ |
@@ -249,19 +253,23 @@ Los resultados vienen ordenados por `id_reclamo` descendente.
 ### POST `/reclamos/`
 Crear nuevo reclamo. **Requiere auth.** `404` si `id_usuario` no existe. Un `ciudadano` solo puede registrar reclamos a su propio nombre (`403` en caso contrario).
 
+`id_medidor` es **obligatorio**: el cliente **elige** uno de sus medidores, no escribe el número. El backend exige que el medidor sea del mismo `id_usuario` (`403` si es de otra cuenta) y del mismo `servicio` que el reclamo (`422` si no), para que la cuadrilla no vaya al suministro equivocado. `404` si el medidor no existe.
+
 **Request Body:**
 ```json
 {
   "id_usuario": 1,
   "canal": "web",
   "servicio": "agua",
+  "id_medidor": 7,
   "categoria": "fuga",
   "urgencia": "alta",
   "descripcion": "Fuga en tubería principal"
 }
 ```
 
-**Response:** `201` `ReclamoResponse` (con `estado: "registrado"` y `fecha_recepcion` asignados)
+**Response:** `201` `ReclamoResponse` (con `estado: "registrado"` y `fecha_recepcion` asignados).
+`numero_medidor` llega en la respuesta, derivado del medidor asociado.
 
 ### GET `/reclamos/estado/{id_o_doc}`
 Consultar estado. **Público — sin auth.** (tracking del ciudadano)
@@ -284,11 +292,14 @@ Obtener reclamo por ID. **Requiere auth.** Un `ciudadano` solo accede a sus prop
 ### PUT `/reclamos/{id}`
 Actualizar reclamo. **Requiere rol interno** (`tecnico`, `supervisor` o `admin`). `409` si el reclamo está `cerrado`.
 
+Si se envía `id_medidor` o `servicio`, se validan juntos contra el cliente: el medidor debe seguir siendo del mismo `id_usuario` (`403`) y del mismo `servicio` resultante (`422`).
+
 **Request Body:** `ReclamoUpdate` (todos opcionales)
 ```json
 {
   "canal": "web",
   "servicio": "agua",
+  "id_medidor": 7,
   "categoria": "fuga",
   "urgencia": "alta",
   "descripcion": "Descripción actualizada",
@@ -302,6 +313,8 @@ Actualizar reclamo. **Requiere rol interno** (`tecnico`, `supervisor` o `admin`)
 
 ### PUT `/reclamos/{id}/clasificar`
 Clasificar reclamo. **Requiere rol interno.** `409` si está `resuelto` o `cerrado`.
+
+Si la reclasificación cambia de `agua` a `luz` (o al revés), el medidor anterior deja de aplicar y se suelta: el reclamo queda sin medidor hasta que se elija el del nuevo servicio.
 
 **Request Body:**
 ```json
@@ -351,6 +364,7 @@ Obtener comprobante. **Requiere auth.** Un `ciudadano` solo obtiene los de sus p
   "fecha_recepcion": "2026-09-26",
   "canal": "web",
   "servicio": "agua",
+  "numero_medidor": "AG-5813307",
   "categoria": "fuga",
   "descripcion": "Fuga en tubería principal",
   "fecha_tope": "2026-10-10"
@@ -378,6 +392,85 @@ avances y derivación.
 **Response:** `200`
 ```json
 { "message": "Reclamo eliminado", "status": "success" }
+```
+
+---
+
+## Medidores
+
+Cada cuenta tiene **exactamente un medidor de agua y uno de luz**, creados
+automáticamente al registrarse o al crearla desde `POST /usuarios/`. El código lo
+genera el sistema (`AG-XXXXXXXX` / `LUZ-XXXXXXXX`) y no se deriva del documento; el
+cliente puede corregirlo desde su perfil si la empresa le entrega otro. El cliente
+nunca escribe un número de medidor: elige el suyo al registrar el reclamo.
+
+Existen dos restricciones: `UniqueConstraint (id_usuario, servicio)` impide dos
+medidores del mismo servicio para la misma cuenta, y `UniqueConstraint (numero)`
+impide que dos suministros compartan código.
+
+### GET `/medidores/`
+Medidores del usuario. **Requiere auth.** `?id_usuario=` consulta los de otra
+cuenta: un `ciudadano` recibe `403`.
+
+**Response:** `200` `List[MedidorResponse]`
+```json
+[
+  { "id_medidor": 7, "id_usuario": 1, "servicio": "agua",  "numero": "AG-5813307",  "direccion": null, "activo": true },
+  { "id_medidor": 8, "id_usuario": 1, "servicio": "luz",   "numero": "LUZ-5813307", "direccion": null, "activo": true }
+]
+```
+
+### GET `/medidores/ciudadanos`
+Ciudadanos con sus medidores. **Requiere rol interno.** Es el endpoint que consume
+el formulario de registro por ventanilla para elegir cliente y medidor en un solo paso.
+
+**Response:** `200`
+```json
+[
+  {
+    "id_usuario": 4,
+    "documento": "10000004",
+    "nombre": "Ciudadano Demo",
+    "medidores": [
+      { "id_medidor": 7, "id_usuario": 4, "servicio": "agua", "numero": "AG-10000004", "direccion": null, "activo": true },
+      { "id_medidor": 8, "id_usuario": 4, "servicio": "luz",  "numero": "LUZ-10000004", "direccion": null, "activo": true }
+    ]
+  }
+]
+```
+
+### POST `/medidores/`
+Alta manual de un medidor. **Requiere `admin`.** Es la excepción: el alta normal
+ocurre sola al crear la cuenta. `400` si la cuenta ya tiene medidor de ese servicio,
+`404` si el usuario no existe.
+
+**Request Body:** `MedidorCreate`
+```json
+{ "id_usuario": 1, "servicio": "agua", "numero": "AG-100245", "direccion": null, "activo": true }
+```
+
+`numero` admite de 4 a 30 caracteres alfanuméricos y guiones; `422` si no cumple.
+
+**Response:** `201` `MedidorResponse`
+
+### PUT `/medidores/{id}`
+Corregir el número o la dirección. **Requiere auth.** El dueño del medidor o cualquier
+rol interno (`403` si es el medidor de otra cuenta y quien llama no es interno).
+
+**Request Body:** `MedidorUpdate` (todos opcionales)
+```json
+{ "numero": "AG-100245" }
+```
+
+**Response:** `200` `MedidorResponse`
+
+### DELETE `/medidores/{id}`
+**Requiere `admin`.** Los reclamos que lo apuntaban quedan sin medidor (`id_medidor`
+a `NULL`) en lugar de eliminarse.
+
+**Response:** `200`
+```json
+{ "message": "Medidor eliminado", "status": "success" }
 ```
 
 ---
@@ -751,6 +844,8 @@ Un valor fuera de estos catálogos se rechaza con `422`.
   "fecha_recepcion": "2026-09-26",
   "canal": "web",
   "servicio": "agua",
+  "id_medidor": 7,
+  "numero_medidor": "AG-5813307",
   "categoria": "fuga",
   "urgencia": "alta",
   "descripcion": "Fuga en tubería",
@@ -759,6 +854,18 @@ Un valor fuera de estos catálogos se rechaza con `422`.
   "fecha_tope": "2026-10-10",
   "fecha_cierre": null,
   "resultado": null
+}
+```
+
+### MedidorResponse
+```json
+{
+  "id_medidor": 7,
+  "id_usuario": 1,
+  "servicio": "agua",
+  "numero": "AG-5813307",
+  "direccion": null,
+  "activo": true
 }
 ```
 

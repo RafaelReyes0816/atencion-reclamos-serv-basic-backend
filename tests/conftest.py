@@ -16,6 +16,7 @@ from app.Infraestructura.database import Base, get_db
 import app.Infraestructura.database.models  # noqa: F401  registra los ORM
 from app.Infraestructura.security import get_password_hash
 from app.Infraestructura.database.models.usuario import UsuarioORM
+from app.Infraestructura.database.models.medidor import MedidorORM
 from app.Infraestructura.tasks import scheduler as scheduler_module
 from app.main import app
 from app.Domain.Entities.catalogos import Rol
@@ -66,7 +67,12 @@ def client(db_session, monkeypatch):
 
 
 def _crear_usuario_directo(db_session, nombre, documento, rol, telefono="5550100"):
-    """Crea un usuario sin pasar por /auth/register, que siempre asigna rol ciudadano."""
+    """Crea un usuario sin pasar por /auth/register, que siempre asigna rol ciudadano.
+
+    Se le dan de alta los dos medidores igual que hace CrearUsuarioUseCase, para que
+    los tests exercised el mismo estado que tiene una cuenta creada por la API. El
+    numero va fijo (no al azar como en produccion) para poder compararlo.
+    """
     usuario = UsuarioORM(
         nombre=nombre,
         documento=documento,
@@ -79,7 +85,36 @@ def _crear_usuario_directo(db_session, nombre, documento, rol, telefono="5550100
     db_session.add(usuario)
     db_session.commit()
     db_session.refresh(usuario)
+    _crear_medidores_directo(db_session, usuario)
     return usuario
+
+
+def _crear_medidores_directo(db_session, usuario, numeros=None):
+    """Replica los medidores por defecto que asigna la API al crear la cuenta."""
+    numeros = numeros or {}
+    creados = {}
+    for servicio in ("agua", "luz"):
+        numero = numeros.get(servicio, f"{'AG' if servicio == 'agua' else 'LUZ'}-{usuario.documento}")
+        medidor = MedidorORM(
+            id_usuario=usuario.id_usuario,
+            servicio=servicio,
+            numero=numero,
+        )
+        db_session.add(medidor)
+        db_session.flush()
+        creados[servicio] = medidor.id_medidor
+    db_session.commit()
+    return creados
+
+
+def _id_medidor(db_session, usuario, servicio):
+    """Id del medidor de un usuario, o None si todavia no se le dio de alta."""
+    medidor = (
+        db_session.query(MedidorORM)
+        .filter_by(id_usuario=usuario.id_usuario, servicio=servicio)
+        .first()
+    )
+    return medidor.id_medidor if medidor else None
 
 
 def _login(client, documento, password="clave123"):
@@ -140,6 +175,17 @@ def usuario_id(usuario_admin):
 
 
 @pytest.fixture
+def id_medidor_agua(db_session, usuario_admin):
+    """Medidor de agua del admin: es el dueno de los reclamos que crea la suite."""
+    return _id_medidor(db_session, usuario_admin, "agua")
+
+
+@pytest.fixture
+def id_medidor_luz(db_session, usuario_admin):
+    return _id_medidor(db_session, usuario_admin, "luz")
+
+
+@pytest.fixture
 def tokens_por_rol(
     client,
     usuario_admin,
@@ -157,14 +203,15 @@ def tokens_por_rol(
 
 
 @pytest.fixture
-def reclamo_creado(headers_admin, usuario_id, client):
+def reclamo_creado(headers_admin, usuario_admin, db_session, client):
     response = client.post(
         "/reclamos/",
         headers=headers_admin,
         json={
-            "id_usuario": usuario_id,
+            "id_usuario": usuario_admin.id_usuario,
             "canal": "web",
             "servicio": "agua",
+            "id_medidor": _id_medidor(db_session, usuario_admin, "agua"),
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga en tuberia principal",

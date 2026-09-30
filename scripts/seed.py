@@ -16,12 +16,14 @@ from sqlalchemy import and_, or_
 from app.Infraestructura.database import engine, Base, SessionLocal
 import app.Infraestructura.database.models  # noqa: F401  registra los ORM
 from app.Infraestructura.repositories.usuario_repository import UsuarioRepository
+from app.Infraestructura.repositories.medidor_repository import MedidorRepository
 from app.Infraestructura.repositories.reclamo_repository import ReclamoRepository
 from app.Infraestructura.repositories.normativa_plazo_repository import NormativaPlazoRepository
 from app.Infraestructura.repositories.cuadrilla_repository import CuadrillaRepository
 from app.Infraestructura.repositories.area_comercial_repository import AreaComercialRepository
 from app.Infraestructura.security import get_password_hash
 from app.Infraestructura.database.models.usuario import UsuarioORM
+from app.Infraestructura.database.models.medidor import MedidorORM
 from app.Infraestructura.database.models.reclamo import ReclamoORM
 from app.Infraestructura.database.models.normativa_plazo import NormativaPlazoORM
 from app.Infraestructura.database.models.cuadrilla import CuadrillaORM
@@ -29,6 +31,7 @@ from app.Infraestructura.database.models.area_comercial import AreaComercialORM
 from app.Infraestructura.database.models.orden_trabajo import OrdenTrabajoORM
 from app.Infraestructura.database.models.avance import AvanceORM
 from app.Infraestructura.database.models.derivacion_comercial import DerivacionComercialORM
+from app.Application.usecase.medidor.gestionar_medidor import AsignarMedidoresPorDefectoUseCase
 from app.Domain.Entities.catalogos import Rol
 
 CONTRASENA_DEMO = "clave123"
@@ -62,6 +65,7 @@ AREAS = [
 
 RECLAMOS = [
     # (doc, canal, servicio, categoria, urgencia, desc, offset_dias, estado, tiene_orden, tiene_derivacion)
+    # El medidor no se indica: se resuelve con el del cliente para ese servicio.
     # --- Cerrados ---
     ("10000004", "web", "agua", "fuga", "alta", "Fuga de agua en la tuberia de la cocina", -2, "cerrado", False, False),
     ("10000004", "telefonico", "luz", "corte", "alta", "Corte de luz por falla en el transformador del barrio", -5, "cerrado", False, False),
@@ -144,6 +148,22 @@ def _wipe(db):
         )
         for servicio, categoria, urgencia in CLAVES_NORMATIVA_DEMO
     ]
+    ids_normativa_demo = [
+        n.id_normativa
+        for n in db.query(NormativaPlazoORM).filter(or_(*filtros_normativa)).all()
+    ]
+    if ids_normativa_demo:
+        # Un reclamo ajeno a este script puede tener aplicada una norma demo. Ese
+        # reclamo no se borra (no es dato nuestro), pero hay que soltarlo de la
+        # norma para poder eliminarla sin violar la llave foranea.
+        sueltos = (
+            db.query(ReclamoORM)
+            .filter(ReclamoORM.id_normativa.in_(ids_normativa_demo))
+            .update({ReclamoORM.id_normativa: None}, synchronize_session=False)
+        )
+        if sueltos:
+            print(f"  {sueltos} reclamo(s) ajenos quedaron sin norma aplicada")
+
     n = db.query(NormativaPlazoORM).filter(or_(*filtros_normativa)).delete(
         synchronize_session=False
     )
@@ -158,6 +178,13 @@ def _wipe(db):
         synchronize_session=False
     )
     print(f"  {n} area(s) comercial(es)")
+
+    # Antes que los usuarios: el borrado masivo no dispara el cascada del ORM.
+    if usuarios_demo_ids:
+        n = db.query(MedidorORM).filter(MedidorORM.id_usuario.in_(usuarios_demo_ids)).delete(
+            synchronize_session=False
+        )
+        print(f"  {n} medidor(es)")
 
     n = db.query(UsuarioORM).filter(UsuarioORM.documento.in_(DOCUMENTOS_DEMO)).delete(
         synchronize_session=False
@@ -194,6 +221,32 @@ def seed_usuarios(db) -> dict:
     return ids
 
 
+def seed_medidores(db, ids) -> dict:
+    """Deja el medidor de agua y el de luz dados de alta para cada cuenta.
+
+    Es la misma operacion que corre al crear un usuario desde la API, aqui se aplica
+    tambien a las cuentas que ya existian para que el seed sea utilizable sobre una
+    base con datos previos. Devuelve {id_usuario: {servicio: id_medidor}} leyendo lo
+    que quedo en la base, no solo lo creado ahora: si no, los reclamos de una cuenta
+    que ya tenia medidores no encontrarian el suyo.
+    """
+    repo = MedidorRepository(db)
+    use_case = AsignarMedidoresPorDefectoUseCase(repo, UsuarioRepository(db))
+    por_cliente = {}
+    for documento, id_usuario in ids.items():
+        use_case.execute(id_usuario)
+        por_cliente[id_usuario] = {m.servicio: m.id_medidor for m in repo.get_by_usuario(id_usuario)}
+        faltantes = [s for s in ("agua", "luz") if s not in por_cliente[id_usuario]]
+        numeros = ", ".join(
+            f"{m.servicio} {m.numero}" for m in repo.get_by_usuario(id_usuario)
+        )
+        if faltantes:
+            print(f"[!]    {documento} quedo sin medidor de: {', '.join(faltantes)}")
+        else:
+            print(f"[ok]   medidores de {documento}: {numeros}")
+    return por_cliente
+
+
 def seed_catalogos(db):
     for servicio, categoria, urgencia, dias in NORMATIVA:
         existe = db.query(NormativaPlazoORM).filter_by(
@@ -226,7 +279,7 @@ def seed_catalogos(db):
         print(f"[nuevo] area comercial {nombre}")
 
 
-def seed_reclamos(db, ids):
+def seed_reclamos(db, ids, medidores):
     repo = ReclamoRepository(db)
     for idx, (doc, canal, servicio, categoria, urgencia, desc, offset, estado, tiene_orden, tiene_derivacion) in enumerate(RECLAMOS, 1):
         existente = db.query(ReclamoORM).filter_by(descripcion=desc).first()
@@ -238,6 +291,7 @@ def seed_reclamos(db, ids):
                 "fecha_recepcion": date.today() - timedelta(days=3),
                 "canal": canal,
                 "servicio": servicio,
+                "id_medidor": medidores[ids[doc]][servicio],
                 "categoria": categoria,
                 "urgencia": urgencia,
                 "descripcion": desc,
@@ -282,10 +336,12 @@ def main() -> int:
             _wipe(db)
         print("\n-- Usuarios --")
         ids = seed_usuarios(db)
+        print("\n-- Medidores --")
+        medidores = seed_medidores(db, ids)
         print("\n-- Catalogos --")
         seed_catalogos(db)
         print("\n-- Reclamos --")
-        seed_reclamos(db, ids)
+        seed_reclamos(db, ids, medidores)
         db.commit()
     finally:
         db.close()

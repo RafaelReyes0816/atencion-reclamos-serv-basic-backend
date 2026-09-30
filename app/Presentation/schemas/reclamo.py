@@ -14,6 +14,9 @@ class ReclamoCreate(BaseCatalogo):
     id_usuario: int = Field(gt=0)
     canal: Canal
     servicio: Servicio
+    # El cliente no escribe el numero: elige el medidor que ya tiene dado de alta.
+    # El use case verifica que sea suyo y que corresponda al servicio del reclamo.
+    id_medidor: int = Field(gt=0)
     categoria: Categoria
     urgencia: Urgencia
     descripcion: str = Field(min_length=5, max_length=1000)
@@ -22,6 +25,7 @@ class ReclamoCreate(BaseCatalogo):
 class ReclamoUpdate(BaseCatalogo):
     canal: Optional[Canal] = None
     servicio: Optional[Servicio] = None
+    id_medidor: Optional[int] = Field(default=None, gt=0)
     categoria: Optional[Categoria] = None
     urgencia: Optional[Urgencia] = None
     descripcion: Optional[str] = Field(default=None, min_length=5, max_length=1000)
@@ -76,6 +80,8 @@ class ReclamoResponse(BaseModel):
     urgencia: str
     descripcion: str
     estado: str
+    id_medidor: Optional[int] = None
+    numero_medidor: Optional[str] = None
     id_normativa: Optional[int] = None
     fecha_tope: Optional[date] = None
     fecha_cierre: Optional[date] = None
@@ -90,6 +96,7 @@ class ComprobanteResponse(BaseModel):
     fecha_recepcion: date
     canal: str
     servicio: str
+    numero_medidor: Optional[str] = None
     categoria: str
     descripcion: str
     fecha_tope: Optional[date] = None

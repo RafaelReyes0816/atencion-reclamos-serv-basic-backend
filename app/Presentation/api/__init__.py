@@ -6,7 +6,7 @@ import app.Infraestructura.database.models  # noqa: F401  registra todos los ORM
 from app.Infraestructura.database import engine, Base
 from app.Infraestructura.tasks import scheduler as scheduler_module
 from app.Domain.Exceptions import DomainError
-from app.Presentation.routes import auth, usuarios, reclamos, normativa, cuadrillas, areas_comerciales, seguimiento, plazos, reportes, dashboard
+from app.Presentation.routes import auth, usuarios, reclamos, normativa, cuadrillas, areas_comerciales, seguimiento, plazos, reportes, dashboard, medidores
 
 
 @asynccontextmanager
@@ -34,6 +34,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(usuarios.router)
+app.include_router(medidores.router)
 app.include_router(reclamos.router)
 app.include_router(normativa.router)
 app.include_router(cuadrillas.router)

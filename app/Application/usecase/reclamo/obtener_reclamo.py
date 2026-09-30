@@ -1,5 +1,6 @@
 from app.Domain.Repositories.reclamo_repository import ReclamoRepositoryABC
 from app.Domain.Repositories.usuario_repository import UsuarioRepositoryABC
+from app.Domain.Repositories.medidor_repository import MedidorRepositoryABC
 from app.Domain.Entities.reclamo import Reclamo
 from app.Domain.Entities.catalogos import EstadoReclamo
 from app.Domain.Exceptions import NoEncontradoError, ConflictoError
@@ -47,8 +48,9 @@ class ConsultarEstadoReclamoUseCase:
 
 
 class ClasificarReclamoUseCase:
-    def __init__(self, reclamo_repo: ReclamoRepositoryABC):
+    def __init__(self, reclamo_repo: ReclamoRepositoryABC, medidor_repo: MedidorRepositoryABC = None):
         self.reclamo_repo = reclamo_repo
+        self.medidor_repo = medidor_repo
 
     def execute(self, id_reclamo: int, servicio: str, categoria: str, urgencia: str) -> Reclamo:
         reclamo = self.reclamo_repo.get_by_id(id_reclamo)
@@ -56,6 +58,13 @@ class ClasificarReclamoUseCase:
             raise NoEncontradoError("Reclamo no encontrado")
         if reclamo.estado in _ESTADOS_BLOQUEADOS:
             raise ConflictoError("No se puede clasificar un reclamo resuelto o cerrado")
+        # Reclasificar puede cambiar agua por luz. El medidor del cliente se conserva
+        # solo si sigue siendo del servicio nuevo; si no, se suelta y queda pendiente
+        # que el cliente elija el suyo del servicio que ahora se esta reclamando.
+        if reclamo.id_medidor is not None and reclamo.medidor is not None:
+            if reclamo.medidor.servicio != servicio:
+                reclamo.id_medidor = None
+                reclamo.medidor = None
         reclamo.servicio = servicio
         reclamo.categoria = categoria
         reclamo.urgencia = urgencia

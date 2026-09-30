@@ -1,4 +1,6 @@
-def test_crear_reclamo_datos_validos_retorna_201(client, auth_headers, usuario_id):
+def test_crear_reclamo_datos_validos_retorna_201(
+    client, auth_headers, usuario_id, id_medidor_agua
+):
     response = client.post(
         "/reclamos/",
         headers=auth_headers,
@@ -6,6 +8,7 @@ def test_crear_reclamo_datos_validos_retorna_201(client, auth_headers, usuario_i
             "id_usuario": usuario_id,
             "canal": "web",
             "servicio": "agua",
+            "id_medidor": id_medidor_agua,
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga en tuberia principal",
@@ -15,9 +18,178 @@ def test_crear_reclamo_datos_validos_retorna_201(client, auth_headers, usuario_i
     body = response.json()
     assert body["estado"] == "registrado"
     assert body["servicio"] == "agua"
+    assert body["id_medidor"] == id_medidor_agua
+    # El numero viene del medidor elegido, no de lo que escriba el usuario.
+    assert body["numero_medidor"] == "AG-10000001"
 
 
-def test_crear_reclamo_canal_invalido_retorna_422(client, auth_headers, usuario_id):
+def test_crear_reclamo_luz_devuelve_numero_del_medidor(
+    client, auth_headers, usuario_id, id_medidor_luz
+):
+    response = client.post(
+        "/reclamos/",
+        headers=auth_headers,
+        json={
+            "id_usuario": usuario_id,
+            "canal": "web",
+            "servicio": "luz",
+            "id_medidor": id_medidor_luz,
+            "categoria": "corte",
+            "urgencia": "alta",
+            "descripcion": "Sin energia electrica en la casa",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["numero_medidor"] == "LUZ-10000001"
+
+
+def test_crear_reclamo_sin_id_medidor_retorna_422(client, auth_headers, usuario_id):
+    response = client.post(
+        "/reclamos/",
+        headers=auth_headers,
+        json={
+            "id_usuario": usuario_id,
+            "canal": "web",
+            "servicio": "agua",
+            "categoria": "fuga",
+            "urgencia": "alta",
+            "descripcion": "Fuga en tuberia sin medidor",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_crear_reclamo_id_medidor_inexistente_retorna_404(
+    client, auth_headers, usuario_id
+):
+    response = client.post(
+        "/reclamos/",
+        headers=auth_headers,
+        json={
+            "id_usuario": usuario_id,
+            "canal": "web",
+            "servicio": "agua",
+            "id_medidor": 9999,
+            "categoria": "fuga",
+            "urgencia": "alta",
+            "descripcion": "Fuga con medidor inexistente",
+        },
+    )
+    assert response.status_code == 404
+
+
+def test_crear_reclamo_medidor_de_otro_usuario_retorna_403(
+    client, auth_headers, usuario_id, db_session, usuario_ciudadano
+):
+    """Un cliente no puede registrar el reclamo sobre el medidor de otra cuenta."""
+    from conftest import _id_medidor
+
+    ajeno = _id_medidor(db_session, usuario_ciudadano, "agua")
+    response = client.post(
+        "/reclamos/",
+        headers=auth_headers,
+        json={
+            "id_usuario": usuario_id,
+            "canal": "web",
+            "servicio": "agua",
+            "id_medidor": ajeno,
+            "categoria": "fuga",
+            "urgencia": "alta",
+            "descripcion": "Fuga sobre medidor ajeno",
+        },
+    )
+    assert response.status_code == 403
+
+
+def test_crear_reclamo_medidor_de_otro_servicio_retorna_422(
+    client, auth_headers, usuario_id, id_medidor_luz
+):
+    """El medidor de luz no sirve para un reclamo de agua."""
+    response = client.post(
+        "/reclamos/",
+        headers=auth_headers,
+        json={
+            "id_usuario": usuario_id,
+            "canal": "web",
+            "servicio": "agua",
+            "id_medidor": id_medidor_luz,
+            "categoria": "fuga",
+            "urgencia": "alta",
+            "descripcion": "Fuga con medidor de luz",
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_editar_numero_del_medidor_se_refleja_en_el_reclamo(
+    client, auth_headers, reclamo_creado, id_medidor_agua
+):
+    """El numero vive en el medidor, no en el reclamo: se corrige una sola vez."""
+    respuesta_medidor = client.put(
+        f"/medidores/{id_medidor_agua}",
+        headers=auth_headers,
+        json={"numero": "AG-999999"},
+    )
+    assert respuesta_medidor.status_code == 200
+
+    response = client.get(f"/reclamos/{reclamo_creado['id_reclamo']}", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["numero_medidor"] == "AG-999999"
+
+
+def test_actualizar_reclamo_rechaza_medidor_de_otro_usuario(
+    client, auth_headers, reclamo_creado, db_session, usuario_ciudadano
+):
+    from conftest import _id_medidor
+
+    ajeno = _id_medidor(db_session, usuario_ciudadano, "agua")
+    response = client.put(
+        f"/reclamos/{reclamo_creado['id_reclamo']}",
+        headers=auth_headers,
+        json={"id_medidor": ajeno},
+    )
+    assert response.status_code == 403
+
+
+def test_actualizar_reclamo_rechaza_medidor_de_otro_servicio(
+    client, auth_headers, reclamo_creado, id_medidor_luz
+):
+    response = client.put(
+        f"/reclamos/{reclamo_creado['id_reclamo']}",
+        headers=auth_headers,
+        json={"id_medidor": id_medidor_luz},
+    )
+    assert response.status_code == 422
+
+
+def test_reclasificar_a_otro_servicio_suelta_el_medidor(
+    client, auth_headers, reclamo_creado
+):
+    """Al pasar de agua a luz el medidor de agua ya no aplica, asi que se suelta."""
+    response = client.put(
+        f"/reclamos/{reclamo_creado['id_reclamo']}/clasificar",
+        headers=auth_headers,
+        json={"servicio": "luz", "categoria": "corte", "urgencia": "critica"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["servicio"] == "luz"
+    assert body["id_medidor"] is None
+    assert body["numero_medidor"] is None
+
+
+def test_comprobante_incluye_numero_medidor(client, auth_headers, reclamo_creado):
+    response = client.get(
+        f"/reclamos/{reclamo_creado['id_reclamo']}/comprobante",
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["numero_medidor"] == "AG-10000001"
+
+
+def test_crear_reclamo_canal_invalido_retorna_422(
+    client, auth_headers, usuario_id, id_medidor_agua
+):
     response = client.post(
         "/reclamos/",
         headers=auth_headers,
@@ -25,6 +197,7 @@ def test_crear_reclamo_canal_invalido_retorna_422(client, auth_headers, usuario_
             "id_usuario": usuario_id,
             "canal": "INVALIDO",
             "servicio": "agua",
+            "id_medidor": id_medidor_agua,
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga en tuberia",
@@ -33,7 +206,9 @@ def test_crear_reclamo_canal_invalido_retorna_422(client, auth_headers, usuario_
     assert response.status_code == 422
 
 
-def test_crear_reclamo_servicio_invalido_retorna_422(client, auth_headers, usuario_id):
+def test_crear_reclamo_servicio_invalido_retorna_422(
+    client, auth_headers, usuario_id, id_medidor_luz
+):
     response = client.post(
         "/reclamos/",
         headers=auth_headers,
@@ -41,6 +216,7 @@ def test_crear_reclamo_servicio_invalido_retorna_422(client, auth_headers, usuar
             "id_usuario": usuario_id,
             "canal": "web",
             "servicio": "teletransporte",
+            "id_medidor": id_medidor_luz,
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga en tuberia",
@@ -49,7 +225,9 @@ def test_crear_reclamo_servicio_invalido_retorna_422(client, auth_headers, usuar
     assert response.status_code == 422
 
 
-def test_crear_reclamo_urgencia_invalida_retorna_422(client, auth_headers, usuario_id):
+def test_crear_reclamo_urgencia_invalida_retorna_422(
+    client, auth_headers, usuario_id, id_medidor_agua
+):
     response = client.post(
         "/reclamos/",
         headers=auth_headers,
@@ -57,6 +235,7 @@ def test_crear_reclamo_urgencia_invalida_retorna_422(client, auth_headers, usuar
             "id_usuario": usuario_id,
             "canal": "web",
             "servicio": "agua",
+            "id_medidor": id_medidor_agua,
             "categoria": "fuga",
             "urgencia": "nuclear",
             "descripcion": "Fuga en tuberia",
@@ -65,7 +244,7 @@ def test_crear_reclamo_urgencia_invalida_retorna_422(client, auth_headers, usuar
     assert response.status_code == 422
 
 
-def test_crear_reclamo_usuario_inexistente_retorna_404(client, auth_headers):
+def test_crear_reclamo_usuario_inexistente_retorna_404(client, auth_headers, id_medidor_agua):
     response = client.post(
         "/reclamos/",
         headers=auth_headers,
@@ -73,6 +252,7 @@ def test_crear_reclamo_usuario_inexistente_retorna_404(client, auth_headers):
             "id_usuario": 9999,
             "canal": "web",
             "servicio": "agua",
+            "id_medidor": id_medidor_agua,
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Fuga en tuberia",
@@ -81,7 +261,9 @@ def test_crear_reclamo_usuario_inexistente_retorna_404(client, auth_headers):
     assert response.status_code == 404
 
 
-def test_crear_reclamo_descripcion_corta_retorna_422(client, auth_headers, usuario_id):
+def test_crear_reclamo_descripcion_corta_retorna_422(
+    client, auth_headers, usuario_id, id_medidor_agua
+):
     response = client.post(
         "/reclamos/",
         headers=auth_headers,
@@ -89,6 +271,7 @@ def test_crear_reclamo_descripcion_corta_retorna_422(client, auth_headers, usuar
             "id_usuario": usuario_id,
             "canal": "web",
             "servicio": "agua",
+            "id_medidor": id_medidor_agua,
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "x",
@@ -276,7 +459,9 @@ def test_actualizar_contacto_email_invalido_retorna_422(client, auth_headers, re
     assert response.status_code == 422
 
 
-def test_filtrar_reclamos_por_servicio(client, auth_headers, usuario_id):
+def test_filtrar_reclamos_por_servicio(
+    client, auth_headers, usuario_id, id_medidor_agua, id_medidor_luz
+):
     client.post(
         "/reclamos/",
         headers=auth_headers,
@@ -284,6 +469,7 @@ def test_filtrar_reclamos_por_servicio(client, auth_headers, usuario_id):
             "id_usuario": usuario_id,
             "canal": "web",
             "servicio": "agua",
+            "id_medidor": id_medidor_agua,
             "categoria": "fuga",
             "urgencia": "alta",
             "descripcion": "Reclamo de agua",
@@ -296,6 +482,7 @@ def test_filtrar_reclamos_por_servicio(client, auth_headers, usuario_id):
             "id_usuario": usuario_id,
             "canal": "web",
             "servicio": "luz",
+            "id_medidor": id_medidor_luz,
             "categoria": "corte",
             "urgencia": "alta",
             "descripcion": "Reclamo de luz",

@@ -9,6 +9,7 @@ class ReclamoORM(Base):
     id_reclamo = Column(Integer, primary_key=True, index=True)
     id_usuario = Column(Integer, ForeignKey("usuarios.id_usuario"), nullable=False)
     id_normativa = Column(Integer, ForeignKey("normativa_plazos.id_normativa"), nullable=True)
+    id_medidor = Column(Integer, ForeignKey("medidores.id_medidor"), nullable=True)
     fecha_recepcion = Column(Date, nullable=False)
     canal = Column(String, nullable=False)
     servicio = Column(String, nullable=False)
@@ -22,5 +23,6 @@ class ReclamoORM(Base):
 
     usuario = relationship("UsuarioORM", back_populates="reclamos")
     normativa = relationship("NormativaPlazoORM", back_populates="reclamos")
+    medidor = relationship("MedidorORM", back_populates="reclamos")
     orden_trabajo = relationship("OrdenTrabajoORM", back_populates="reclamo", uselist=False)
     derivacion_comercial = relationship("DerivacionComercialORM", back_populates="reclamo", uselist=False)

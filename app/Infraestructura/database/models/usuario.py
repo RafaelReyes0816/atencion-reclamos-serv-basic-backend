@@ -16,3 +16,4 @@ class UsuarioORM(Base):
     rol = Column(String, nullable=False, server_default="ciudadano", index=True, default="ciudadano")
 
     reclamos = relationship("ReclamoORM", back_populates="usuario")
+    medidores = relationship("MedidorORM", back_populates="usuario", cascade="all, delete-orphan")

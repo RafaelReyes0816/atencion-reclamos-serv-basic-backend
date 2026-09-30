@@ -22,14 +22,14 @@ graph TB
         end
 
         subgraph "Domain Layer"
-            Entities[Entities<br/>9 dataclasses<br/>Usuario, Reclamo,<br/>NormativaPlazo,<br/>OrdenTrabajo, Avance,<br/>DerivacionComercial,<br/>Cuadrilla, AreaComercial,<br/>Reporte]
-            Interfaces[Repository ABC<br/>9 interfaces]
+            Entities[Entities<br/>10 dataclasses<br/>Usuario, Medidor, Reclamo,<br/>NormativaPlazo,<br/>OrdenTrabajo, Avance,<br/>DerivacionComercial,<br/>Cuadrilla, AreaComercial,<br/>Reporte]
+            Interfaces[Repository ABC<br/>10 interfaces]
             Exceptions[Exceptions<br/>DomainError + derivados]
         end
 
         subgraph "Infrastructure Layer"
-            ORM[SQLAlchemy Models<br/>9 tablas]
-            Repos[Concrete Repositories<br/>9 implementaciones]
+            ORM[SQLAlchemy Models<br/>10 tablas]
+            Repos[Concrete Repositories<br/>10 implementaciones]
             Security[Security<br/>JWT + bcrypt]
             Scheduler[APScheduler<br/>Tareas Temporales]
         end
@@ -182,6 +182,38 @@ para contraseñas existe `actualizar_contrasena()`, expuesto en
 
 ---
 
+## Medidores
+
+Cada cuenta tiene **exactamente un medidor de agua y uno de luz**. El número lo sortea
+el sistema al crear la cuenta (`AG-XXXXXXXX` / `LUZ-XXXXXXXX`, 8 caracteres alfanuméricos
+sin vocales ni dígitos que se confundan al dictarlos) y el cliente lo corrige desde su
+perfil si la empresa le entrega otro. `UniqueConstraint(id_usuario, servicio)` impide un
+segundo medidor del mismo servicio y `UniqueConstraint(numero)` impide que dos suministros
+compartan código.
+
+El código no depende del documento: se genera con `secrets` y se verifica contra la base
+antes de usarlo, así que un cliente no puede deducir ni el de otro. `AsignarMedidoresPorDefectoUseCase`
+es idempotente, y `scripts/migrar_esquema.py` renumera los `AG-{documento}` que dejó la
+versión anterior.
+
+Consecuencia de diseño: el reclamo **nunca** guarda un número escrito por el usuario,
+sino una `id_medidor` (nullable, para no invalidar los reclamos anteriores a esta tabla).
+El número que ve el ciudadano es un campo derivado (`Reclamo.medidor.numero`).
+
+`ValidarMedidorReclamoUseCase` (`app/Application/usecase/reclamo/validar_medidor.py`) es
+donde vive la regla, y se aplica en los tres caminos que tocan el medidor:
+
+| Camino | Qué hace |
+|--------|----------|
+| `CrearReclamoUseCase` | Exige `id_medidor` del propio cliente y del mismo `servicio` |
+| `ActualizarReclamoUseCase` | Valida `id_medidor` y `servicio` **juntos** si se envía alguno |
+| `ClasificarReclamoUseCase` | Si el nuevo `servicio` no corresponde, suelta el medidor (`NULL`) |
+
+Los roles internos registran por ventanilla con `GET /medidores/ciudadanos`, que devuelve
+ciudadanos con sus medidores para elegirlos de una sola vez.
+
+---
+
 ## Diagrama de Flujo — Ciclo de Vida de un Reclamo
 
 ```mermaid
@@ -244,10 +276,20 @@ erDiagram
         string rol
     }
 
+    MEDIDOR {
+        int id_medidor PK
+        int id_usuario FK
+        string servicio
+        string numero
+        string direccion
+        bool activo
+    }
+
     RECLAMO {
         int id_reclamo PK
         int id_usuario FK
         int id_normativa FK
+        int id_medidor FK
         date fecha_recepcion
         string canal
         string servicio
@@ -317,6 +359,8 @@ erDiagram
     }
 
     USUARIO ||--o{ RECLAMO : presenta
+    USUARIO ||--o{ MEDIDOR : tiene
+    MEDIDOR o|--o{ RECLAMO : sustenta
     NORMATIVA_PLAZO ||--o{ RECLAMO : establece_plazo
     RECLAMO o|--o| ORDEN_TRABAJO : genera
     RECLAMO o|--o| DERIVACION_COMERCIAL : deriva

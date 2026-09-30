@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.Infraestructura.database import get_db
 from app.Infraestructura.security import decode_access_token
 from app.Infraestructura.repositories.usuario_repository import UsuarioRepository
+from app.Infraestructura.repositories.medidor_repository import MedidorRepository
 from app.Infraestructura.repositories.reclamo_repository import ReclamoRepository
 from app.Infraestructura.repositories.normativa_plazo_repository import NormativaPlazoRepository
 from app.Infraestructura.repositories.orden_trabajo_repository import OrdenTrabajoRepository
@@ -17,6 +18,11 @@ from app.Application.usecase.usuario.obtener_usuario import ObtenerUsuarioUseCas
 from app.Application.usecase.usuario.crear_usuario import CrearUsuarioUseCase
 from app.Application.usecase.usuario.actualizar_usuario import ActualizarUsuarioUseCase
 from app.Application.usecase.usuario.cambiar_contrasena import CambiarContrasenaUseCase
+from app.Application.usecase.medidor.gestionar_medidor import (
+    ListarMedidoresUseCase, ObtenerMedidorUseCase, ListarMedidoresDeCiudadanosUseCase,
+    CrearMedidorUseCase, ActualizarMedidorUseCase, EliminarMedidorUseCase,
+    AsignarMedidoresPorDefectoUseCase,
+)
 from app.Application.usecase.reclamo.listar_reclamos import ListarReclamosUseCase
 from app.Application.usecase.reclamo.obtener_reclamo import (
     ObtenerReclamoUseCase, ClasificarReclamoUseCase, ConsultarEstadoReclamoUseCase,
@@ -104,6 +110,7 @@ def require_roles(*roles: Rol):
 
 def get_service(db: Session = Depends(get_db)):
     usuario_repo = UsuarioRepository(db)
+    medidor_repo = MedidorRepository(db)
     reclamo_repo = ReclamoRepository(db)
     normativa_repo = NormativaPlazoRepository(db)
     orden_repo = OrdenTrabajoRepository(db)
@@ -113,22 +120,33 @@ def get_service(db: Session = Depends(get_db)):
     area_repo = AreaComercialRepository(db)
     reporte_repo = ReporteRepository(db)
 
+    # Se inyecta en CrearUsuarioUseCase: todo cliente nace con su medidor de agua
+    # y el de luz ya dados de alta.
+    asignar_medidores = AsignarMedidoresPorDefectoUseCase(medidor_repo, usuario_repo)
+
     return {
         # Usuarios
         "listar_usuarios": ListarUsuariosUseCase(usuario_repo),
         "obtener_usuario": ObtenerUsuarioUseCase(usuario_repo),
-        "crear_usuario": CrearUsuarioUseCase(usuario_repo),
+        "crear_usuario": CrearUsuarioUseCase(usuario_repo, asignar_medidores),
         "actualizar_usuario": ActualizarUsuarioUseCase(usuario_repo),
         "eliminar_usuario": EliminarUsuarioUseCase(usuario_repo),
         "cambiar_contrasena": CambiarContrasenaUseCase(usuario_repo),
+        # Medidores
+        "listar_medidores": ListarMedidoresUseCase(medidor_repo),
+        "obtener_medidor": ObtenerMedidorUseCase(medidor_repo),
+        "listar_medidores_ciudadanos": ListarMedidoresDeCiudadanosUseCase(medidor_repo, usuario_repo),
+        "crear_medidor": CrearMedidorUseCase(medidor_repo, usuario_repo),
+        "actualizar_medidor": ActualizarMedidorUseCase(medidor_repo),
+        "eliminar_medidor": EliminarMedidorUseCase(medidor_repo),
         # Reclamos
         "listar_reclamos": ListarReclamosUseCase(reclamo_repo),
         "obtener_reclamo": ObtenerReclamoUseCase(reclamo_repo),
         "consultar_estado_reclamo": ConsultarEstadoReclamoUseCase(reclamo_repo, usuario_repo),
-        "crear_reclamo": CrearReclamoUseCase(reclamo_repo, usuario_repo),
-        "actualizar_reclamo": ActualizarReclamoUseCase(reclamo_repo),
+        "crear_reclamo": CrearReclamoUseCase(reclamo_repo, usuario_repo, medidor_repo),
+        "actualizar_reclamo": ActualizarReclamoUseCase(reclamo_repo, medidor_repo),
         "eliminar_reclamo": EliminarReclamoUseCase(reclamo_repo),
-        "clasificar_reclamo": ClasificarReclamoUseCase(reclamo_repo),
+        "clasificar_reclamo": ClasificarReclamoUseCase(reclamo_repo, medidor_repo),
         "asignar_plazo": AsignarPlazoUseCase(reclamo_repo, normativa_repo),
         "resolver_reclamo": ResolverReclamoUseCase(reclamo_repo),
         "cerrar_reclamo": CerrarReclamoUseCase(reclamo_repo),

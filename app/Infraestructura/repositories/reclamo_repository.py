@@ -20,6 +20,10 @@ class ReclamoRepository(ReclamoRepositoryABC):
             fecha_recepcion=orm.fecha_recepcion,
             canal=orm.canal,
             servicio=orm.servicio,
+            # El numero no se copia en la tabla: se deriva del medidor del cliente,
+            # que es la unica fuente de verdad.
+            numero_medidor=orm.medidor.numero if orm.medidor else None,
+            id_medidor=orm.id_medidor,
             categoria=orm.categoria,
             urgencia=orm.urgencia,
             descripcion=orm.descripcion,
@@ -30,6 +34,7 @@ class ReclamoRepository(ReclamoRepositoryABC):
             resultado=orm.resultado,
             usuario=orm.usuario,
             normativa=orm.normativa,
+            medidor=orm.medidor,
             orden_trabajo=orm.orden_trabajo,
             derivacion_comercial=orm.derivacion_comercial,
         )
@@ -38,6 +43,7 @@ class ReclamoRepository(ReclamoRepositoryABC):
         return self.db.query(ReclamoORM).options(
             joinedload(ReclamoORM.usuario),
             joinedload(ReclamoORM.normativa),
+            joinedload(ReclamoORM.medidor),
             joinedload(ReclamoORM.orden_trabajo),
             joinedload(ReclamoORM.derivacion_comercial),
         )
@@ -85,6 +91,7 @@ class ReclamoRepository(ReclamoRepositoryABC):
     def get_por_vencer(self, fecha_actual: date) -> List[Reclamo]:
         query = self.db.query(ReclamoORM).options(
             joinedload(ReclamoORM.usuario),
+            joinedload(ReclamoORM.medidor),
         ).filter(
             ReclamoORM.fecha_tope >= fecha_actual,
             ReclamoORM.estado.notin_(["cerrado", "registrado"]),
@@ -94,6 +101,7 @@ class ReclamoRepository(ReclamoRepositoryABC):
     def get_vencidos(self, fecha_actual: date) -> List[Reclamo]:
         query = self.db.query(ReclamoORM).options(
             joinedload(ReclamoORM.usuario),
+            joinedload(ReclamoORM.medidor),
         ).filter(
             ReclamoORM.fecha_tope < fecha_actual,
             ReclamoORM.estado.notin_(["cerrado"]),
@@ -103,6 +111,7 @@ class ReclamoRepository(ReclamoRepositoryABC):
     def get_criticos(self) -> List[Reclamo]:
         query = self.db.query(ReclamoORM).options(
             joinedload(ReclamoORM.usuario),
+            joinedload(ReclamoORM.medidor),
         ).filter(
             ReclamoORM.urgencia == "critica",
             ReclamoORM.estado.notin_(["cerrado", "resuelto"]),
@@ -122,6 +131,7 @@ class ReclamoRepository(ReclamoRepositoryABC):
             raise ValueError(f"Reclamo {entity.id_reclamo} no encontrado")
         orm.id_usuario = entity.id_usuario
         orm.id_normativa = entity.id_normativa
+        orm.id_medidor = entity.id_medidor
         orm.canal = entity.canal
         orm.servicio = entity.servicio
         orm.categoria = entity.categoria
