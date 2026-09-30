@@ -723,7 +723,48 @@ cargado a mano. Imprime el antes y el despues de cada cambio.
 
 ---
 
-## 21. Pendientes conocidos
+## 21. `direccion` del ciudadano en `GET /medidores/ciudadanos`
+
+2 archivos modificados, +6 l��neas, 1 test ampliado.
+
+El formulario de nuevo reclamo paso a buscar al ciudadano y a prellenar su nombre, su
+direccion y su medidor. El nombre y los medidores ya venían en `GET /medidores/ciudadanos`;
+**la direccion no**, y sin ella el formulario no tenia de donde sacarla.
+
+### `app/Presentation/schemas/medidor.py` (modificado)
+
+`MedidorCiudadanoResponse` suma `direccion: str = ""`.
+
+Con default y no obligatoria: es un campo que se agrega a una respuesta que ya existe, y
+un consumidor viejo que lo desconozca tiene que seguir recibiendo 200.
+
+### `app/Application/usecase/medidor/gestionar_medidor.py` (modificado)
+
+`ListarMedidoresDeCiudadanosUseCase` incluye `usuario.direccion` en cada dict. Sale del
+mismo `get_all()` que ya se recorria, asi que no hay una consulta nueva.
+
+### Por que no una llamada a `GET /usuarios/{id}`
+
+Era la alternativa obvio, y tiene dos problemas:
+
+1. **Un viaje por cada seleccion**, cuando el listado completo ya esta en memoria en el
+   navegador.
+2. **No le sirve al rol `tecnico`.** `_verificar_acceso` en `app/Presentation/routes/usuarios.py`
+   solo deja pasar a los roles de `GESTION` (supervisor y admin); un tecnico que consultara
+   el perfil de otro ciudadano recibiria 403. En cambio `/medidores/ciudadanos` usa
+   `require_roles(*INTERNO)`, que si incluye al tecnico.
+
+El campo `direccion` del medidor (`Medidor.direccion`) no sirve para esto:
+`AsignarMedidoresPorDefectoUseCase` nunca lo escribe, asi que siempre llega en `None`.
+
+### `tests/test_medidores.py` (modificado)
+
+`test_lista_de_ciudadanos_incluye_sus_medidores` ahora comprueba tambien `nombre` y
+`direccion` del ciudadano, que es lo que el formulario consume.
+
+---
+
+## 22. Pendientes conocidos
 
 - **No hay pantalla de registro publico en el frontend.** `POST /auth/register` existe y
   `AuthContext.registro` esta implementado, pero ninguna pagina lo invoca.

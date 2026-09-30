@@ -194,6 +194,10 @@ def test_lista_de_ciudadanos_incluye_sus_medidores(client, headers_tecnico, usua
     entry = cuerpo[0]
     assert entry["id_usuario"] == usuario_ciudadano.id_usuario
     assert entry["documento"] == usuario_ciudadano.documento
+    # El formulario de ventanilla prellena nombre y direccion al elegir al
+    # ciudadano, asi que la direccion tiene que viajar en la misma respuesta.
+    assert entry["nombre"] == usuario_ciudadano.nombre
+    assert entry["direccion"] == usuario_ciudadano.direccion
     assert {m["servicio"] for m in entry["medidores"]} == {"agua", "luz"}
 
 

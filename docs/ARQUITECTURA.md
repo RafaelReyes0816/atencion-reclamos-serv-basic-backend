@@ -236,7 +236,9 @@ donde vive la regla, y se aplica en los tres caminos que tocan el medidor:
 | `ClasificarReclamoUseCase` | Si el nuevo `servicio` no corresponde, suelta el medidor (`NULL`) |
 
 Los roles internos registran por ventanilla con `GET /medidores/ciudadanos`, que devuelve
-ciudadanos con sus medidores para elegirlos de una sola vez.
+ciudadanos con su dirección y sus medidores para elegirlos de una sola vez. La dirección
+del ciudadano viaja ahí y no en `GET /usuarios/{id}` porque este último solo le abre la
+puerta a los roles de `GESTION`, y el `tecnico` también registra por ventanilla.
 
 ---
 

@@ -456,8 +456,9 @@ cuenta: un `ciudadano` recibe `403`.
 ```
 
 ### GET `/medidores/ciudadanos`
-Ciudadanos con sus medidores. **Requiere rol interno.** Es el endpoint que consume
-el formulario de registro por ventanilla para elegir cliente y medidor en un solo paso.
+Ciudadanos con sus medidores y su dirección. **Requiere rol interno.** Es el endpoint que
+consume el formulario de registro por ventanilla para elegir cliente y medidor en un solo
+paso, y que prellena el nombre de la cuenta y la dirección del reclamo.
 
 **Response:** `200`
 ```json
@@ -466,6 +467,7 @@ el formulario de registro por ventanilla para elegir cliente y medidor en un sol
     "id_usuario": 4,
     "documento": "10000004",
     "nombre": "Ciudadano Demo",
+    "direccion": "Calle 45 # 12-30",
     "medidores": [
       { "id_medidor": 7, "id_usuario": 4, "servicio": "agua", "numero": "AG-10000004", "direccion": null, "activo": true },
       { "id_medidor": 8, "id_usuario": 4, "servicio": "luz",  "numero": "LUZ-10000004", "direccion": null, "activo": true }
@@ -473,6 +475,11 @@ el formulario de registro por ventanilla para elegir cliente y medidor en un sol
   }
 ]
 ```
+
+> El `direccion` del ciudadano y el `direccion` de cada medidor son cosas distintas: el
+> primero es el que tiene en su cuenta y llega siempre como texto (vacío si no lo
+> registró); el segundo es la dirección del suministro y hoy ningún caso de uso lo escribe,
+> por eso sale en `null`.
 
 ### POST `/medidores/`
 Alta manual de un medidor. **Requiere `admin`.** Es la excepción: el alta normal

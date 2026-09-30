@@ -78,6 +78,7 @@ class ListarMedidoresDeCiudadanosUseCase:
                 "id_usuario": usuario.id_usuario,
                 "documento": usuario.documento,
                 "nombre": usuario.nombre,
+                "direccion": usuario.direccion or "",
                 "medidores": self.medidor_repo.get_by_usuario(usuario.id_usuario),
             })
         return resultado

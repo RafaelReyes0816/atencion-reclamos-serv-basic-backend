@@ -42,9 +42,15 @@ class MedidorResponse(BaseModel):
 
 
 class MedidorCiudadanoResponse(BaseModel):
-    """Ciudadano con sus medidores. Solo para los roles internos al registrar un reclamo."""
+    """Ciudadano con sus medidores. Solo para los roles internos al registrar un reclamo.
+
+    `direccion` es la del titular de la cuenta: el formulario de nuevo reclamo la
+    prellena al elegir al ciudadano, asi que tiene que viajar en la misma respuesta
+    y no en una consulta aparte por cada seleccion.
+    """
 
     id_usuario: int
     documento: str
     nombre: str
+    direccion: str = ""
     medidores: List[MedidorResponse]
