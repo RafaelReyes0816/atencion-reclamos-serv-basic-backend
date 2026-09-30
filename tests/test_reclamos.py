@@ -371,7 +371,7 @@ def test_cerrar_reclamo_no_resuelto_retorna_409(client, auth_headers, reclamo_cr
     assert response.status_code == 409
 
 
-def test_flujo_completo_registro_hasta_cierre(client, auth_headers, reclamo_creado):
+def test_flujo_completo_registro_hasta_cierre(client, auth_headers, reclamo_creado, cuadrilla_creada):
     id_reclamo = reclamo_creado["id_reclamo"]
 
     client.put(
@@ -398,7 +398,7 @@ def test_flujo_completo_registro_hasta_cierre(client, auth_headers, reclamo_crea
     orden = client.post(
         "/seguimiento/ordenes",
         headers=auth_headers,
-        json={"id_reclamo": id_reclamo, "cuadrilla": "Cuadrilla Alpha", "fecha_asignacion": "2026-09-26"},
+        json={"id_reclamo": id_reclamo, "id_cuadrilla": cuadrilla_creada["id_cuadrilla"], "fecha_asignacion": "2026-09-26"},
     ).json()
     client.post(
         "/seguimiento/avances",

@@ -25,6 +25,12 @@ class CuadrillaRepository(CuadrillaRepositoryABC):
         orm = self.db.query(CuadrillaORM).filter(CuadrillaORM.id_cuadrilla == id).first()
         return self._to_entity(orm) if orm else None
 
+    def get_by_id_con_bloqueo(self, id: int) -> Optional[Cuadrilla]:
+        orm = self.db.query(CuadrillaORM).filter(
+            CuadrillaORM.id_cuadrilla == id
+        ).with_for_update().first()
+        return self._to_entity(orm) if orm else None
+
     def get_disponibles(self, especialidad: str) -> List[Cuadrilla]:
         query = self.db.query(CuadrillaORM).filter(CuadrillaORM.especialidad == especialidad)
         return [self._to_entity(e) for e in query.all()]

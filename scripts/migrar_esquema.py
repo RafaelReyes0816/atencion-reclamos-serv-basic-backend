@@ -147,6 +147,74 @@ def completar_desde_usuarios() -> None:
             print(f"[dato] reclamos.{columna} <- usuarios.{origen}: {resultado.rowcount or 0} fila(s)")
 
 
+def vincular_ordenes_cuadrilla() -> int:
+    """Backfill de `ordenes_trabajo.id_cuadrilla` a partir del nombre guardado.
+
+    Antes de esta columna, la cuadrilla de una orden era solo texto. Se
+    resuelve por nombre exacto y solo se rellenan los NULL, asi que es
+    idempotente y no toca lo ya vinculado.
+
+    Las ordenes cuyo nombre no corresponde a ninguna cuadrilla (datos viejos
+    de pruebas, por ejemplo) se quedan en NULL: preferimos una orden sin
+    cuadrilla identificable antes que inventarle una.
+    """
+    if "ordenes_trabajo" not in inspect(engine).get_table_names():
+        return 0
+    if "id_cuadrilla" not in _columnas("ordenes_trabajo"):
+        print("[skip] ordenes_trabajo: falta id_cuadrilla, corre el script de nuevo")
+        return 0
+    with engine.begin() as conn:
+        # Solo se vincula cuando el nombre corresponde a UNA sola cuadrilla.
+        # `cuadrillas.nombre` no es unique, y en un UPDATE ... FROM varias
+        # filas que coincidan NO dejan la columna en NULL: PostgreSQL elige
+        # una al azar. Acotar con el `GROUP BY ... HAVING COUNT(*) = 1`
+        # convierte la ambiguedad en un no-op en vez de en un dato inventado.
+        #
+        # Los nombres de columna son literales de este modulo, no entrada externa.
+        resultado = conn.execute(text(
+            "UPDATE ordenes_trabajo SET id_cuadrilla = unicas.id_cuadrilla "
+            "FROM ("
+            "  SELECT nombre, MIN(id_cuadrilla) AS id_cuadrilla "
+            "  FROM cuadrillas GROUP BY nombre HAVING COUNT(*) = 1"
+            ") AS unicas "
+            "WHERE ordenes_trabajo.cuadrilla = unicas.nombre "
+            "AND ordenes_trabajo.id_cuadrilla IS NULL"
+        ))
+        vinculadas = resultado.rowcount or 0
+
+        sin_resolver = conn.execute(text(
+            "SELECT DISTINCT o.cuadrilla FROM ordenes_trabajo o "
+            "LEFT JOIN cuadrillas c ON o.cuadrilla = c.nombre "
+            "WHERE o.id_cuadrilla IS NULL AND o.cuadrilla IS NOT NULL"
+        )).scalars().all()
+
+    print(f"[dato] ordenes_trabajo.id_cuadrilla: {vinculadas} orden(es) vinculada(s)")
+    for nombre in sin_resolver:
+        # O no hay cuadrilla con ese nombre, o hay varias y el nombre no alcanza
+        # para decidir. En los dos casos la orden queda sin vincular a mano.
+        print(f"[aviso] {nombre!r} no identifica una unica cuadrilla; esas ordenes quedan sin vincular")
+    return vinculadas
+
+
+def normalizar_capacidad() -> int:
+    """Sube a 1 las capacidades en cero o negativas.
+
+    Con `capacidad = 0` la cuadrilla esta siempre saturada y no acepta ninguna
+    orden. El esquema exige `gt=0`, asi que un 0 solo puede venir de datos
+    viejos o de una carga directa.
+    """
+    if "cuadrillas" not in inspect(engine).get_table_names():
+        return 0
+    with engine.begin() as conn:
+        resultado = conn.execute(
+            text("UPDATE cuadrillas SET capacidad = 1 WHERE capacidad IS NULL OR capacidad < 1")
+        )
+        corregidas = resultado.rowcount or 0
+    if corregidas:
+        print(f"[dato] cuadrillas.capacidad: {corregidas} con tope invalido, llevadas a 1")
+    return corregidas
+
+
 def main() -> int:
     print(f"Base de datos: {engine.url.render_as_string(hide_password=True)}\n")
     cambios = 0
@@ -169,6 +237,16 @@ def main() -> int:
     cambios += agregar_columna_si_falta(
         "reclamos", "id_medidor", "id_medidor INTEGER REFERENCES medidores(id_medidor)"
     )
+
+    print()
+    # Nullable a proposito: las ordenes anteriores a la columna se conservan
+    # con su nombre y sin vincular, en lugar de quedar invalidas.
+    cambios += agregar_columna_si_falta(
+        "ordenes_trabajo", "id_cuadrilla",
+        "id_cuadrilla INTEGER REFERENCES cuadrillas(id_cuadrilla)",
+    )
+    cambios += normalizar_capacidad()
+    cambios += vincular_ordenes_cuadrilla()
 
     print()
     cambios += agregar_indice_unico_si_falta("uq_medidor_numero", "medidores")

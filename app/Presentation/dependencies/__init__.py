@@ -158,10 +158,10 @@ def get_service(db: Session = Depends(get_db)):
         "actualizar_normativa": ActualizarNormativaUseCase(normativa_repo),
         "eliminar_normativa": EliminarNormativaUseCase(normativa_repo),
         # Cuadrillas
-        "listar_cuadrillas": ListarCuadrillasUseCase(cuadrilla_repo),
-        "obtener_cuadrilla": ObtenerCuadrillaUseCase(cuadrilla_repo),
+        "listar_cuadrillas": ListarCuadrillasUseCase(cuadrilla_repo, orden_repo),
+        "obtener_cuadrilla": ObtenerCuadrillaUseCase(cuadrilla_repo, orden_repo),
         "crear_cuadrilla": CrearCuadrillaUseCase(cuadrilla_repo),
-        "actualizar_cuadrilla": ActualizarCuadrillaUseCase(cuadrilla_repo),
+        "actualizar_cuadrilla": ActualizarCuadrillaUseCase(cuadrilla_repo, orden_repo),
         "eliminar_cuadrilla": EliminarCuadrillaUseCase(cuadrilla_repo),
         # Areas comerciales
         "listar_areas": ListarAreasUseCase(area_repo),
@@ -172,8 +172,10 @@ def get_service(db: Session = Depends(get_db)):
         # Seguimiento
         "listar_ordenes": ListarOrdenesUseCase(orden_repo),
         "obtener_orden": ObtenerOrdenUseCase(orden_repo),
-        "crear_orden": CrearOrdenUseCase(orden_repo, reclamo_repo),
-        "actualizar_orden": ActualizarOrdenUseCase(orden_repo, reclamo_repo, avance_repo),
+        "crear_orden": CrearOrdenUseCase(orden_repo, reclamo_repo, cuadrilla_repo),
+        "actualizar_orden": ActualizarOrdenUseCase(
+            orden_repo, reclamo_repo, avance_repo, cuadrilla_repo
+        ),
         "eliminar_orden": EliminarOrdenUseCase(orden_repo),
         "listar_avances": ListarAvancesUseCase(avance_repo),
         "crear_avance": CrearAvanceUseCase(avance_repo, orden_repo),

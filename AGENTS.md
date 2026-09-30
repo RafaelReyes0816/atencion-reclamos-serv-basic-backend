@@ -111,14 +111,33 @@ Presentation → Application → Domain ← Infraestructura
 ## Gotchas
 
 - **`scripts/migrar_esquema.py` is a hand-maintained allowlist, not an auto-migrator.** Its `main()`
-  calls `agregar_columna_si_falta(...)` for exactly four columns (`usuarios.rol`,
-  `reclamos.nombre_cuenta`, `reclamos.direccion`, `reclamos.id_medidor`) and also runs
+  calls `agregar_columna_si_falta(...)` for exactly five columns (`usuarios.rol`,
+  `reclamos.nombre_cuenta`, `reclamos.direccion`, `reclamos.id_medidor`,
+  `ordenes_trabajo.id_cuadrilla`) and also runs
   `crear_tablas_faltantes()`, `agregar_indice_unico_si_falta()` (for the `medidores` unique
   indexes), `completar_medidores_existentes()` and `renumerar_medidores_placeholder()`.
   `Base.metadata.create_all()` creates *new tables* but
   never alters existing ones, so **adding a column to an ORM requires adding a matching
   `agregar_columna_si_falta(...)` call to `main()`** or the column is silently missing. Never
   `drop_all` unless you intend to lose data.
+- **Cuadrilla capacity is enforced, and the lock is what makes it true.** `POST
+  /seguimiento/ordenes` and the reassignment in `PUT /seguimiento/ordenes/{id}` both raise
+  `ConflictoError` (409) when the target cuadrilla already has `capacidad` orders in
+  `asignada` or `en_curso`; `resuelta` frees the slot. The check runs against
+  `CuadrillaRepository.get_by_id_con_bloqueo()` (`SELECT ... FOR UPDATE`), so on PostgreSQL the
+  count and the insert share one transaction and two concurrent assignments can't both slip in.
+  **SQLite ignores `FOR UPDATE`**, so a test cannot prove the race is closed — don't write one that
+  claims to. The count uses `contar_activas_por_cuadrilla(excluir_id_orden=...)` so reassigning an
+  order to its own cuadrilla still works when that cuadrilla is exactly full.
+- **`ordenes_trabajo.cuadrilla` is a snapshot, `id_cuadrilla` is the reference.** Renaming a
+  cuadrilla does not rewrite historical orders. Orders migrated before the column existed keep
+  `id_cuadrilla = NULL` and are still listed by their frozen name, so nothing that reads
+  `o.cuadrilla` needs changing. `cuadrillas.nombre` is **not** unique, which is why
+  `vincular_ordenes_cuadrilla()` only backfills names that match exactly one row — in a plain
+  `UPDATE ... FROM` PostgreSQL would pick an arbitrary match instead of leaving `NULL`.
+- **Lowering `capacidad` below the current load is allowed on purpose.** `ActualizarCuadrillaUseCase`
+  saves it and returns `disponible: false`; the row keeps its orders and simply refuses new ones.
+  The admin UI surfaces this as a warning (`Alerta tipo="aviso"`), it is not an error.
 - **Scheduler runs on app startup.** `lifespan` calls `init_scheduler()`, which starts a real
   `BackgroundScheduler` with 5 jobs (interval 1h ×2, 30min, cron daily 23:00, cron monthly 1st).
   It opens its **own** `SessionLocal()`, bypassing `get_db` overrides. `api/__init__.py` imports it as a

@@ -202,6 +202,36 @@ def tokens_por_rol(
     }
 
 
+def _crear_cuadrilla(client, headers, nombre, especialidad, capacidad):
+    response = client.post(
+        "/cuadrillas/",
+        headers=headers,
+        json={
+            "nombre": nombre,
+            "especialidad": especialidad,
+            "capacidad": capacidad,
+            "contacto": "3001234567",
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+@pytest.fixture
+def cuadrilla_creada(headers_admin, client):
+    """Cuadrilla de agua con cupo de sobra, para los tests que solo necesitan
+    una cuadrilla a la que asignar."""
+    return _crear_cuadrilla(client, headers_admin, "Cuadrilla Test", "agua", 5)
+
+
+@pytest.fixture
+def crear_cuadrilla(headers_admin, client):
+    """Fabrica cuadrillas con la capacidad y especialidad que pida cada test."""
+    return lambda nombre, capacidad=5, especialidad="agua": _crear_cuadrilla(
+        client, headers_admin, nombre, especialidad, capacidad
+    )
+
+
 @pytest.fixture
 def reclamo_creado(headers_admin, usuario_admin, db_session, client):
     response = client.post(

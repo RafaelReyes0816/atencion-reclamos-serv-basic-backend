@@ -25,7 +25,12 @@ class CuadrillaResponse(BaseModel):
     id_cuadrilla: int
     nombre: str
     especialidad: str
+    # `capacidad` es el tope de ordenes activas; `ordenes_activas` es la carga
+    # actual y `disponible` si todavia cabe una mas. Vienen calculados en la
+    # lectura, no almacenados.
     capacidad: int
+    ordenes_activas: int = 0
+    disponible: bool = True
     contacto: str
 
     model_config = ConfigDict(from_attributes=True)

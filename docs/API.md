@@ -573,8 +573,15 @@ Eliminar normativa. **Requiere `supervisor` o `admin`.** Los reclamos que la ref
 
 ## Cuadrillas
 
+Toda respuesta de cuadrilla trae dos campos derivados que el cliente puede leer pero nunca
+escribir: `ordenes_activas` (cuántas órdenes están en `asignada` o `en_curso`) y `disponible`
+(`false` cuando `ordenes_activas >= capacidad`).
+
 ### GET `/cuadrillas/disponibles/{especialidad}`
 Cuadrillas por especialidad. **Requiere rol interno.** `especialidad`: `agua` | `luz`.
+Ordena primero las que tienen cupo y, dentro de cada grupo, de menor a mayor carga, para que el
+cliente ofrezca la más libre. **Incluye también las saturadas**, con `disponible: false`, para
+poder explicar por qué no son una opción.
 
 **Response:** `200` `List[CuadrillaResponse]`
 
@@ -591,15 +598,19 @@ Crear cuadrilla. **Requiere `supervisor` o `admin`.**
 { "nombre": "Cuadrilla Alpha", "especialidad": "agua", "capacidad": 3, "contacto": "555-0101" }
 ```
 
-**Response:** `201` `CuadrillaResponse`
+**Response:** `201` `CuadrillaResponse` (con `ordenes_activas: 0` y `disponible: true`)
 
 ### GET `/cuadrillas/{id}`
-**Requiere rol interno.**
+**Requiere rol interno.** Devuelve también la carga y la disponibilidad reales, no solo el `capacidad`.
 
 **Response:** `200` `CuadrillaResponse`
 
 ### PUT `/cuadrillas/{id}`
 Actualizar cuadrilla. **Requiere `supervisor` o `admin`.** Solo se modifican los campos enviados.
+
+**Bajar `capacidad` por debajo de la carga actual no se rechaza:** la cuadrilla queda con
+`disponible: false` y no acepta asignaciones nuevas hasta que se resuelva trabajo en curso o se
+vuelva a ampliar el tope. La respuesta trae la carga real para que el cliente avise al usuario.
 
 **Response:** `200` `CuadrillaResponse`
 
@@ -652,9 +663,18 @@ Orden de un reclamo. **Requiere rol interno.** `404` si no tiene orden.
 Crear orden. **Requiere rol interno.** `404` si el reclamo no existe, `409` si ya tiene orden.
 **Cambia el estado del reclamo a `en_atencion_tecnica`.**
 
+**`id_cuadrilla` es obligatorio** y es una **referencia**, no un texto: el cliente elige una
+cuadrilla de `GET /cuadrillas/disponibles/{servicio}` y el servidor toma el nombre de esa fila.
+`cuadrilla` en la respuesta es solo el nombre congelado al asignar.
+`404` si la cuadrilla no existe.
+
+**`409` si la cuadrilla ya tiene `capacidad` órdenes en estado `asignada` o `en_curso`.**
+Mensaje: *"La cuadrilla {nombre} ya tiene {carga} de {capacidad} órdenes activas; su capacidad
+está agotada. Amplíala o asigná otra cuadrilla."* Resolver una orden libera su cupo.
+
 **Request Body:**
 ```json
-{ "id_reclamo": 1, "cuadrilla": "Cuadrilla Alpha", "fecha_asignacion": "2026-09-26" }
+{ "id_reclamo": 1, "id_cuadrilla": 1, "fecha_asignacion": "2026-09-26" }
 ```
 
 **Response:** `201` `OrdenTrabajoResponse` (con `estado_orden: "asignada"`)
@@ -671,9 +691,13 @@ Actualizar orden. **Requiere rol interno.** Solo los campos enviados.
 aplica a culminar: reasignar cuadrilla o fecha en una orden sin avances sí se permite.
 Mensaje: *"La orden de trabajo no tiene avances registrados; regístralos antes de resolver"*.
 
+Al reasignar con `id_cuadrilla` se repite la validación de capacidad, **excluyendo la orden que
+se está moviendo** — por eso una orden puede reasignarse a su propia cuadrilla aunque esté al
+tope. `404` si la cuadrilla no existe.
+
 **Request Body:**
 ```json
-{ "cuadrilla": "Cuadrilla Beta", "fecha_asignacion": "2026-09-27", "estado_orden": "en_curso" }
+{ "id_cuadrilla": 2, "fecha_asignacion": "2026-09-27", "estado_orden": "en_curso" }
 ```
 
 **Response:** `200` `OrdenTrabajoResponse`
@@ -938,8 +962,10 @@ Un valor fuera de estos catálogos se rechaza con `422`.
 ```
 
 ### OrdenTrabajoResponse
+`id_cuadrilla` es `null` en órdenes históricas migradas antes de que existiera la referencia;
+`cuadrilla` conserva el nombre congelado, por eso ambas cosas van juntas.
 ```json
-{ "id_orden": 1, "id_reclamo": 1, "cuadrilla": "Cuadrilla Alpha", "fecha_asignacion": "2026-09-26", "estado_orden": "asignada" }
+{ "id_orden": 1, "id_reclamo": 1, "id_cuadrilla": 1, "cuadrilla": "Cuadrilla Alpha", "fecha_asignacion": "2026-09-26", "estado_orden": "asignada" }
 ```
 
 ### AvanceResponse

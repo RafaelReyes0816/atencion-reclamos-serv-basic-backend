@@ -10,12 +10,15 @@ class BaseCatalogo(BaseModel):
 
 class OrdenTrabajoCreate(BaseCatalogo):
     id_reclamo: int = Field(gt=0)
-    cuadrilla: str = Field(min_length=2, max_length=120)
+    # La cuadrilla se elige por id, no por nombre: es lo unico que permite
+    # validar la capacidad. El nombre lo responde el servidor, y por eso no
+    # se acepta en la entrada (habria dos fuentes de verdad).
+    id_cuadrilla: int = Field(gt=0)
     fecha_asignacion: date
 
 
 class OrdenTrabajoUpdate(BaseCatalogo):
-    cuadrilla: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    id_cuadrilla: Optional[int] = Field(default=None, gt=0)
     fecha_asignacion: Optional[date] = None
     estado_orden: Optional[EstadoOrden] = None
 
@@ -23,6 +26,7 @@ class OrdenTrabajoUpdate(BaseCatalogo):
 class OrdenTrabajoResponse(BaseModel):
     id_orden: int
     id_reclamo: int
+    id_cuadrilla: Optional[int] = None
     cuadrilla: str
     fecha_asignacion: date
     estado_orden: str

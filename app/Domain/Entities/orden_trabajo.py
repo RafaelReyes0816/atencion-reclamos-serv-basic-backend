@@ -10,5 +10,6 @@ class OrdenTrabajo:
     cuadrilla: str
     fecha_asignacion: date
     estado_orden: str
+    id_cuadrilla: Optional[int] = None
     avances: Optional[List[object]] = field(default=None)
     reclamo: Optional[object] = field(default=None)
