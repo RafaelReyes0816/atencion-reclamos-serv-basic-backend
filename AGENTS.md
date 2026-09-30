@@ -1,30 +1,40 @@
 # AGENTS.md
 
-## Stack
+## Layout
 
-- **Backend:** Python, FastAPI, SQLAlchemy, PostgreSQL, JWT (`app/`)
-- **Frontend:** React 19, Vite 8, React Router v7, Axios, pnpm (`frontend/`)
-- **Deploy:** Solo local (sin despliegue a producción)
-- **Package manager:** pnpm only (no npm/yarn). No TypeScript — files are `.js`/`.jsx`.
-- **Repos:** Two independent git repos (`backend/` and `frontend/`), not a monorepo
+- **Backend:** Python, FastAPI, SQLAlchemy, PostgreSQL, JWT (`backend/app/`)
+- **Frontend:** React 19, Vite 8, React Router v7, Axios (`frontend/`) — pnpm only, no TypeScript (`.js`/`.jsx`)
+- **Two independent git repos** (`backend/`, `frontend/`), both on `master` with a GitHub
+  `origin`. There is **no root `.git`**: the root `AGENTS.md`, `docs/`, and `PLAN.md` are untracked
+  by both.
+- `backend/AGENTS.md` is a tracked near-duplicate of this file. **Update both** or they drift.
+- `backend/PLAN.md` is byte-identical to the root `PLAN.md` — edit one and copy.
+- Commits are conventional, in Spanish: `feat:`, `fix:`, `docs:`, `refactor:`. Feature work lands
+  as a paired backend + frontend commit pair.
+- **No CI, no pre-commit, no Python linter/formatter/typechecker.** There is no `pyproject.toml`
+  or `setup.py` — deps live only in `backend/requirements.txt`, and `pytest` is the *only*
+  automated gate. Don't reach for `ruff`/`black`/`mypy`; they are not configured.
 
 ## Commands
 
 ```bash
-# Backend
-pip install -r requirements.txt
-python -m scripts.migrar_esquema   # aplica ALTERs pendientes (idempotente, no borra datos)
-python -m scripts.seed             # datos de prueba (--reset para recargar)
-uvicorn app.main:app --reload --port 8000
+# Backend — deps live in backend/venv, NOT the system python
+cd backend && ./venv/bin/python -m pytest          # or: source venv/bin/activate
+cd backend && python -m scripts.migrar_esquema     # ALTERs pendientes (idempotente, preserva datos)
+cd backend && python -m scripts.seed               # datos de prueba (--reset solo borra lo suyo)
+cd backend && uvicorn app.main:app --reload --port 8000
 
 # Frontend
 cd frontend && pnpm install
-cd frontend && pnpm dev       # Vite dev server, port 5173
-cd frontend && pnpm lint      # oxlint (NOT ESLint)
-cd frontend && pnpm build     # Production build to dist/
+cd frontend && pnpm dev     # http://127.0.0.1:5173
+cd frontend && pnpm lint    # oxlint, NOT ESLint
+cd frontend && pnpm build
+cd frontend && pnpm preview # port 4173, also proxied
 ```
 
-Swagger: http://localhost:8000/docs
+Swagger: http://localhost:8000/docs. Health: `GET /health`.
+Copy `backend/.env.example` → `backend/.env`; `DATABASE_URL`/`SECRET_KEY` are read at **import**
+time, so a missing one crashes on startup, not per request.
 
 ### Usuarios de prueba (`python -m scripts.seed`)
 
@@ -35,25 +45,30 @@ Swagger: http://localhost:8000/docs
 | `tecnico` | `10000003` | `clave123` |
 | `ciudadano` | `10000004` | `clave123` |
 
-En PowerShell usar `curl.exe`, no `Invoke-RestMethod` (rompe la `ñ` de la contraseña).
+`seed` is idempotent. `--reset` deletes **only** rows matching the demo name/document filters
+(`NOMBRES_CUADRILLA_DEMO`, `DOCUMENTOS_DEMO`, …), never unrelated records.
 
-## Roles y permisos
+## Testing: green, but slow — and 70% of the time is one file
 
-Cuatro roles en `app/Domain/Entities/catalogos.py::Rol`. Se aplican con
-`require_roles(*roles)` en `app/Presentation/dependencies/__init__.py`:
-
-```python
-from app.Presentation.dependencies import require_roles, INTERNO, GESTION, ADMIN
-
-INTERNO  = (tecnico, supervisor, admin)   # lectura de catalogs + operacion de reclamos
-GESTION  = (supervisor, admin)            # escritura de catalogs, cierre, reportes, dashboard
-ADMIN    = (admin,)                       # CRUD de usuarios, eliminacion de reclamos
-```
-
-`POST /auth/register` es público pero **siempre** asigna `ciudadano`; ignora el `rol` del
-body. Solo `POST /usuarios/` (admin) permite crear usuarios con otro rol. Los claims del JWT
-se re-consultan contra la BD en cada request, así que cambiar el rol surte efecto de
-inmediato. La matriz completa está en `docs/API.md`.
+- **The suite passes** (246 tests, ~4m40s), but **never run bare `pytest` for a quick check.**
+  `tests/test_permisos.py` alone is ~3m14s of that — the other nine files combined are ~80s.
+- Cause: `test_matriz_de_permisos` is parametrized **24 endpoints × 4 roles = 96 cases**, and
+  `tokens_por_rol` is **function-scoped**, so every case re-hashes and re-verifies 4 bcrypt
+  passwords. `pwd_context` sets no explicit rounds, so bcrypt defaults to 12.
+- Timings to plan against: `test_auth.py` <1s, `test_medidores.py` ~10s, `test_reclamos.py` ~15s.
+  Iterate on one file or narrow with `-k`. Fastest signal is almost always a single file.
+- `pytest.ini` already sets `addopts = -q --tb=short` and filters `DeprecationWarning`/`UserWarning`.
+- Tests need **no PostgreSQL**. `tests/conftest.py` `setdefault`s `DATABASE_URL` to a temp
+  SQLite file and the `db_session` fixture overrides `get_db` with an **in-memory** `sqlite://`
+  engine + `StaticPool` + `PRAGMA foreign_keys=ON`.
+- Conftest helpers worth reusing instead of rewriting: `headers_admin|supervisor|tecnico|ciudadano`,
+  `auth_headers` (alias of admin), `tokens_por_rol`, `reclamo_creado`, `usuario_id`,
+  `id_medidor_agua` / `id_medidor_luz`. Use `_crear_usuario_directo` for non-`ciudadano` roles —
+  `/auth/register` always forces `ciudadano`.
+- In `MATRIZ`, `esperado` is the code when the role *is* allowed, and **`404` is often the correct
+  pass**: routes are protected correctly but the fixture resource `9999` doesn't exist. Only a
+  `403` expectation that returns `404` signals a real permission gap.
+- Naming: `test_<method>_<scenario>_<result>`. Frontend has no test runner (no vitest).
 
 ## Architecture (Clean Architecture)
 
@@ -63,69 +78,132 @@ Dependency rule is strict — violations cause import errors:
 Presentation → Application → Domain ← Infraestructura
 ```
 
-- `app/Domain/` — pure dataclasses (entities) + ABC interfaces (repositories) + `Exceptions.py`. Never imports from Infraestructura or Presentation.
-- `app/Application/usecase/` — use cases. Depends only on Domain.
-- `app/Infraestructura/` — SQLAlchemy models, JWT/bcrypt, concrete repositories. Implements what Domain defines.
-- `app/Presentation/` — FastAPI app (in `api/`), routes, Pydantic schemas, DI dependencies. Uses Application (use cases).
+- `backend/app/Domain/` — dataclasses, ABC repository interfaces, `Exceptions.py`. Imports nothing from the inner layers.
+- `backend/app/Application/usecase/<entidad>/` — **directories are singular** (`reclamo/`,
+  `usuario/`, `cuadrilla/`, `area_comercial/`, `orden_trabajo/`, `avance/`, `derivacion/`,
+  `medidor/`, `normativa/`, `reporte/`; only `plazos/` is plural), while the routers are plural
+  (`routes/reclamos.py`). Don't guess the name — `ls` it.
+- **File layout inside a usecase dir is not uniform.** `reclamo/` and `usuario/` use one file
+  per operation (`crear_reclamo.py`, `asignar_plazo.py`, `resolver_reclamo.py`, …); the rest use
+  one `gestionar_<entidad>.py` holding several use cases. Follow the sibling dir you land in.
+- `backend/app/Infraestructura/` — ORM models, JWT/bcrypt, concrete repositories. Entity ↔ ORM conversion is inline in each repository.
+- `backend/app/Presentation/` — `api/` (app, CORS, routers, exception handlers, lifespan), `routes/`, `schemas/`, `dependencies/`.
+- `backend/app/main.py` is a thin wrapper over `Presentation/api/__init__.py`.
 
-Key directories:
-- `app/Domain/Entities/` — dataclass entities
-- `app/Domain/Repositories/` — ABC interfaces
-- `app/Domain/Exceptions.py` — `DomainError` y derivados. `Presentation/api/__init__.py` los traduce a HTTP con su `status_code`, así que los use cases lanzan excepciones de dominio, nunca `HTTPException`.
-- `app/Infraestructura/database/` — engine, SessionLocal, Base, get_db (setup in `__init__.py`)
-- `app/Infraestructura/repositories/` — concrete implementations
-- `app/Application/usecase/<entity>/` — use case classes, agrupados por archivo (`gestionar_<entidad>.py`)
-- `app/Presentation/api/` — FastAPI app, CORS middleware, router includes, exception handlers, lifespan
-- `app/Presentation/routes/` — FastAPI routers
-- `app/Presentation/schemas/` — Pydantic schemas
-- `app/main.py` — entry point (thin wrapper, imports app from `Presentation/api`)
-- `scripts/` — `migrar_esquema.py` y `seed.py`
+### Wiring facts that are easy to get wrong
+
+- **Router registration is manual.** Adding `app/Presentation/routes/<x>.py` requires editing the
+  `app.include_router(...)` list in `Presentation/api/__init__.py` **and** the import on its
+  line 9. There are 11 routers today. Same for ORM models: the module must be reachable from
+  `import app.Infraestructura.database.models` (that import on `api/__init__.py:5` is what
+  registers them in `Base.metadata`).
+- **Exceptions:** use cases raise `DomainError` subclasses from `Domain/Exceptions.py` (each carries
+  its own `status_code`: 400/403/404/409/422). The handler in `Presentation/api/__init__.py` maps
+  them to HTTP. **Never raise `HTTPException` from a use case** — but routes and `dependencies/`
+  do use it (401/403), and that is fine.
+- **DI:** routes take `servicio = Depends(get_service)`, and `get_service()`
+  (`Presentation/dependencies/__init__.py:111`) is one function returning a **single dict literal**
+  of pre-built use cases. New use cases must be added to that dict, or `servicio["..."]` KeyErrors.
+  Do not instantiate repositories in a route, and do not put business logic there.
+- `dependencies/__init__.py` defines `INTERNO` (tecnico, supervisor, admin), `GESTION` (supervisor,
+  admin), `ADMIN` (admin). Four roles live in `Domain/Entities/catalogos.py::Rol`.
 
 ## Gotchas
 
-- **bcrypt version:** Must use `bcrypt==4.0.1` — newer versions (5.x) break passlib compatibility. See `requirements.txt`.
-- **Entity relations:** Always include `Optional[object]` for relationships in entity dataclasses, otherwise Pydantic throws `Field required` on serialization.
-- **joinedload:** Use `joinedload()` in `get_all` and `get_by_id` on every relationship. Without it, related objects are `None` and Pydantic fails.
-- **DATABASE_URL dialect:** Use `postgresql+psycopg://` (not `postgresql://`). See `app/Infraestructura/database/__init__.py`.
-- **SQLite support:** `database/__init__.py` auto-detects SQLite and disables `pool_pre_ping`. Use `sqlite:///./test.db` for local dev.
-- **API proxy:** Frontend uses relative URLs. Vite proxies to backend via `vite.config.js` server.proxy. Add new routes there when adding endpoints. Don't hardcode `VITE_API_URL` in axios.
-- **Vite 8 host:** `vite.config.js` sets `host: '127.0.0.1'` — without this, Vite 8 only binds `[::1]` and `http://127.0.0.1:5173` doesn't respond.
-- **Preview proxy:** `pnpm preview` (port 4173) also needs the proxy config; without it the app loads but all API calls fail silently.
-- **CORS:** `Presentation/api/__init__.py` allows `http://localhost:5173`. Update if frontend port changes.
-- **Login format:** OAuth2 `application/x-www-form-urlencoded` (not JSON) — matches FastAPI's `OAuth2PasswordRequestForm`. `username` = documento.
-- **Password field:** User entity has `contraseña` (plain) in request, `contraseña_hash` (bcrypt) in DB. Never expose hash in API responses. `UsuarioRepository.update()` nunca escribe el hash: para contraseñas usar `actualizar_contrasena()`.
-- **DI pattern:** Routes usan `use_cases = Depends(get_service)` — un dict de use cases. **No instanciar repositorios directamente en las rutas**; la lógica de negocio va en `app/Application/usecase/`, no en el route.
-- **Schema changes:** `Base.metadata.create_all()` **no altera** tablas existentes. Ejecutar `python -m scripts.migrar_esquema` (ALTER idempotente, preserva datos). No usar `drop_all` salvo que quieras perder todo. El script es una **allowlist escrita a mano**: hoy tiene `usuarios.rol`, `reclamos.nombre_cuenta` y `reclamos.direccion`, y `completar_desde_usuarios()` hace el backfill de las dos últimas desde `usuarios.nombre` / `usuarios.direccion`. Una columna nueva en el ORM sin su `agregar_columna_si_falta(...)` queda ausente en silencio.
-- **`ReclamoRepository.update()` copia los campos uno por uno:** una columna nueva del reclamo se pierde en las actualizaciones si no se agrega también a ese método.
-- **Una orden de trabajo no culmina sin avances:** `estado_orden: "resuelta"` y `PUT /reclamos/{id}/resolver` lanzan `ConflictoError` (409) si la orden no tiene avances. La validación vive en `ActualizarOrdenUseCase` / `ResolverReclamoUseCase` (constante compartida `SIN_AVANCES`), no en las rutas. Un reclamo **sin** orden sí se puede resolver.
-- **Scheduler en tests:** `Presentation/api/__init__.py` importa el módulo con `from app.Infraestructura.tasks import scheduler` y llama `scheduler_module.init_scheduler()`, no `from ... import init_scheduler`. Si se importa la función directamente, el monkeypatch de `conftest.py` deja de funcionar y el `BackgroundScheduler` real arranca contra la BD real.
-- **403 vs 401:** `401` = token ausente/inválido. `403` = token válido pero rol insuficiente. El frontend debe distinguir ambos.
+- **`scripts/migrar_esquema.py` is a hand-maintained allowlist, not an auto-migrator.** Its `main()`
+  calls `agregar_columna_si_falta(...)` for exactly four columns (`usuarios.rol`,
+  `reclamos.nombre_cuenta`, `reclamos.direccion`, `reclamos.id_medidor`) and also runs
+  `crear_tablas_faltantes()`, `agregar_indice_unico_si_falta()` (for the `medidores` unique
+  indexes), `completar_medidores_existentes()` and `renumerar_medidores_placeholder()`.
+  `Base.metadata.create_all()` creates *new tables* but
+  never alters existing ones, so **adding a column to an ORM requires adding a matching
+  `agregar_columna_si_falta(...)` call to `main()`** or the column is silently missing. Never
+  `drop_all` unless you intend to lose data.
+- **Scheduler runs on app startup.** `lifespan` calls `init_scheduler()`, which starts a real
+  `BackgroundScheduler` with 5 jobs (interval 1h ×2, 30min, cron daily 23:00, cron monthly 1st).
+  It opens its **own** `SessionLocal()`, bypassing `get_db` overrides. `api/__init__.py` imports it as a
+  module (`from ... import scheduler as scheduler_module`) on purpose — `conftest.py` monkeypatches
+  attributes on that module. Import `init_scheduler` directly and the patch silently fails, the
+  real scheduler starts, and it writes to the real DB. `conftest.py` asserts
+  `not scheduler.scheduler.running` to catch this.
+- **`bcrypt==4.0.1` is pinned** in `requirements.txt`; 5.x breaks passlib.
+- **`DATABASE_URL` must use `postgresql+psycopg://`**, not `postgresql://`. Missing `DATABASE_URL`
+  or `SECRET_KEY` raises at import time, not at request time. `database/__init__.py` branches on a
+  `sqlite` prefix to skip `pool_pre_ping`.
+- **Entity dataclasses need `Optional[...]` defaults on every relationship**, or Pydantic raises
+  `Field required` on serialization.
+- **`ReclamoRepository.update()` copies fields explicitly**, so a new reclamo column is silently
+  dropped on update unless it is added to that method too — the ORM and the update path drift apart.
+- **A work order cannot be closed without progress.** `estado_orden: "resuelta"` via
+  `PUT /seguimiento/ordenes/{id}` and `PUT /reclamos/{id}/resolver` both raise `ConflictoError`
+  (409) when the order has no avances. The check lives in `ActualizarOrdenUseCase` /
+  `ResolverReclamoUseCase` (shared `SIN_AVANCES` constant in
+  `usecase/orden_trabajo/gestionar_orden.py:10`), not in the routes. Resolving a reclamo with
+  **no** order is still allowed.
+- **`POST /reclamos/` requires `id_medidor`** (`ReclamoCreate.id_medidor: int = Field(gt=0)`,
+  `schemas/reclamo.py:19`); it is `Optional` on update and on the response. A hand-rolled reclamo
+  payload without it gets a 422 — use the `reclamo_creado` or `id_medidor_agua` fixtures.
+- **`medidores` carries two unique constraints** — `(id_usuario, servicio)` and `numero` — so a
+  client has at most one meter per service and `numero` is server-generated, never client-supplied.
+  Inserting a duplicate in a test fails at the DB level, not in a use case.
+- **Two different fields are both called `direccion` in the medidor schemas.** In
+  `MedidorCiudadanoResponse` it is `usuarios.direccion` (the account holder's address, a string,
+  `""` if unregistered) and is what the ventanilla form prefills. In `MedidorResponse` it is the
+  supply's address and **no use case writes it**, so it is always `null`. Don't conflate them.
+- **`nombre_cuenta`/`direccion` identify the service account, not the person.** They live on
+  `reclamos`, while `telefono`/`email` in `PUT /reclamos/{id}/contacto` are written to
+  `usuarios`. Required on create, optional on update, `Optional` in the entity/ORM for
+  legacy rows.
+- **Repositories must `joinedload()` every relationship** in `get_all` and `get_by_id`; lazy loading
+  is off and Pydantic gets `None`.
+- **Passwords:** `contraseña` (plain) in requests, `contraseña_hash` (bcrypt) in the DB. Never expose
+  the hash. `UsuarioRepository.update()` never writes it — use `actualizar_contrasena()`.
+- **Login is OAuth2 form-encoded**, not JSON: `POST /auth/login` with
+  `data={"username": <documento>, "password": ...}`. `username` is the *documento*, not an email.
+- **`POST /auth/register` is public and always forces `Rol.ciudadano`**, ignoring any `rol` in the
+  body. Only `POST /usuarios/` (admin) can mint another role. JWT claims are re-read from the DB on
+  every request, so role changes apply immediately.
+- **401 vs 403:** 401 = missing/invalid token, 403 = valid token, insufficient role. The frontend
+  interceptor (`frontend/src/api/client.js`) clears the token and hard-redirects to `/ingresar` on
+  401, and deliberately does *not* log out on 403.
 
-## Conventions
+## Frontend specifics
 
-- UI in Spanish (variables, labels, error messages).
-- One use case class per CRUD operation (e.g., `ListarProductosUseCase`).
-- Entity ↔ ORM conversion inline in each concrete repository.
-- Routes pattern: `router = APIRouter(prefix="/entities", tags=["entities"])`.
-
-## Testing
-
-```bash
-# Backend (from backend/)
-cd backend && pytest  # pytest + httpx (async) or FastAPI TestClient
-```
-
-- Naming: `test_<method>_<scenario>_<result>`
-- Frontend testing not configured (vitest not in devDependencies)
-
-## Deployment Notes
-
-- Backend: Solo local, sin Docker ni plataforma externa.
-- Frontend: Solo local, sin Vercel ni plataforma externa.
-- Secrets en `.env` (nunca en el repo).
+- **The Vite proxy is an explicit allowlist.** `vite.config.js` `RUTAS_API` lists 11 prefixes
+  (`/auth`, `/usuarios`, `/medidores`, `/reclamos`, `/normativa`, `/cuadrillas`,
+  `/areas-comerciales`, `/seguimiento`, `/plazos`, `/reportes`, `/dashboard`). A new backend
+  router is **unreachable** from the frontend until you add it there — there is no catch-all.
+  Requests use relative URLs; do not hardcode a base URL in axios.
+- `corregirLocation` rewrites absolute `Location` headers back to relative. FastAPI 307-redirects
+  `/x` → `/x/`; without this the browser follows it cross-origin and CORS blocks it. Keep it if you
+  touch the proxy config.
+- `host: '127.0.0.1'` is required in both `server` and `preview` — Vite 8 otherwise binds only
+  `[::1]` and `127.0.0.1:5173` refuses connections.
+- CORS in `Presentation/api/__init__.py` allows only `http://localhost:5173`. Update both if the
+  port changes.
+- **Frontend route names deliberately differ from the backend**: login is `/ingresar` (not
+  `/login`), and everything authenticated is nested under `/panel/*` with
+  `administracion/*` for the CRUD screens. Route guards are the
+  `Protegida` / `SoloVisitante` wrappers in `src/App.jsx`; role failures render
+  `pages/NoAutorizado.jsx` rather than redirecting. Adding a page means editing the `<Routes>` tree
+  in `App.jsx` (there is no file-based routing).
+- `pnpm lint` currently exits 0 with **27 pre-existing warnings** (`set-state-in-effect` ×16,
+  `only-export-components` ×11). Don't try to zero them out as part of unrelated work. But
+  `.oxlintrc.json` sets `react/rules-of-hooks` to **error**, so a real hook violation fails the build.
+- **`src/components/Autocompletado.jsx` is the shared search-with-suggestions input** (props:
+  `id`, `etiqueta`, `opciones`, `valor`, `onCambiar`, `onElegir`, `maximo`). It is purely
+  presentational — the page supplies the options. Reuse it instead of writing another typeahead.
+- `dist/` is gitignored. Auth state lives in `localStorage` under `token` and `sesion` (the full
+  session JSON, written by `AuthContext.jsx`); the last error uses `error-global` (`client.js`).
+  The two files declare these key constants separately — change both if you rename one.
 
 ## Reference
 
-- Template guide: `docs/Plantilla-FastAPI.md`
-- Architecture docs: `docs/ARQUITECTURA.md`
-- Plan de desarrollo: `PLAN.md`
+- `backend/docs/API.md` — endpoint and permission matrix (964 lines; the authoritative one).
+- `backend/docs/ARQUITECTURA.md` — current architecture doc. The root `docs/ARQUITECTURA.md` is a
+  35-line older stub; prefer the backend one.
+- `frontend/README.md` — fuller frontend walkthrough. `backend/CAMBIOS.md` and
+  `frontend/CAMBIOS.md` are change logs of the last big feature pass.
+- `docs/SKILLS_PROYECTO.md` (910 lines of generic Kubernetes/malware/red-team skills) and
+  `docs/informe-indice.md` / `docs/informe-indices.md` (empty course-report template) are **not
+  project guidance**; don't mine them for conventions.
